@@ -182,57 +182,59 @@ class LearnedClippedLinearQuantization(nn.Module):
 # DJP
 class FQConvQuantizationSTE(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, x, scale_param, num_bits, inplace):
-        ctx.save_for_backward(x, scale_param)
+    def forward(ctx, x, num_bits, inplace):
         if inplace:
             ctx.mark_dirty(x)
-        # Having a positive scale factor is preferable to avoid instabilities
-        scale_factor = torch.exp(scale_param)
         # Number of positive quantization levels
         n = 2**(num_bits-1) - 1
-        # Divide input by scale factor
-        x_scaled = x / scale_factor
         # Hardtanh
-        output = clamp(x_scaled, -1, 1, inplace)
+        output = clamp(x, -1, 1, inplace)
         # Multiply by number of levels
         output = output * n
         # Round
         output = torch.round(output)
         # Divide by number of levels
         output = output / n
-        # Multiply by scale factor
-        output = output * scale_factor
         
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
         #import pdb; pdb.set_trace()
-        x, scale_param = ctx.saved_tensors
+        #x, scale_param = ctx.saved_tensors
         grad_input = grad_output.clone()
         #grad_input.masked_fill_(x.le(0), 0)
         #grad_input.masked_fill_(x.ge(scale_param.data[0]), 0)
 
-        grad_alpha = grad_output.clone()
+        #grad_alpha = grad_output.clone()
         #grad_alpha.masked_fill_(x.lt(scale_param.data[0]), 0)
-#        grad_alpha[input.lt(clip_val.data[0])] = 0
+        #grad_alpha[input.lt(clip_val.data[0])] = 0
         #grad_alpha = grad_alpha.sum().expand_as(scale_param)
 
-        # Straight-through estimator for the scale factor calculation
-        return grad_input, grad_alpha, None, None
+        return grad_input, None, None
 
 
 # MR (Ref: https://arxiv.org/abs/1912.09356)
 class FQConvQuantization(nn.Module):
-    def __init__(self, num_bits, init_scale_param=0., inplace=False):
+    def __init__(self, cout, num_bits, init_scale_param=0., train_scale_param=False, inplace=False):
         super().__init__()
+        self.cout = cout
         self.num_bits = num_bits
-        self.scale_param = nn.Parameter(torch.Tensor([init_scale_param]))
+        self.train_scale_param = train_scale_param
+        #self.cout = 1
+        self.scale_param = nn.Parameter(torch.Tensor(self.cout), requires_grad=train_scale_param)
+        self.scale_param.data.fill_(init_scale_param)
         self.inplace = inplace
 
     def forward(self, x):
-        x = FQConvQuantizationSTE.apply(x, self.scale_param, self.num_bits, self.inplace)
-        return x
+        # Having a positive scale factor is preferable to avoid instabilities 
+        exp_scale_param = torch.exp(self.scale_param)
+        x_scaled = x / exp_scale_param.view(self.cout, 1, 1, 1)
+        # Quantize
+        x_q = FQConvQuantizationSTE.apply(x_scaled, self.num_bits, self.inplace)
+        # Multiply by scale factor
+        x_deq = x_q * exp_scale_param.view(self.cout, 1, 1, 1)
+        return x_deq
     
     def __repr__(self):
         return f'{self.__class__.__name__}(num_bits={self.num_bits}, scale_param={self.scale_param})'
@@ -241,7 +243,7 @@ class FQConvQuantization(nn.Module):
 class QuantMultiPrecActivConv2d(nn.Module):
 
     def __init__(self, inplane, outplane, wbits=None, abits=None, fc=None, **kwargs):
-        super(QuantMultiPrecActivConv2d, self).__init__()
+        super().__init__()
         
         self.fine_tune = kwargs.pop('fine_tune', False)
         self.first_layer = kwargs.pop('first_layer', False)
@@ -272,7 +274,7 @@ class QuantMultiPrecActivConv2d(nn.Module):
                 self.mix_weight = QuantMixChanConv2d(inplane, outplane, _wbits, **kwargs)
             elif self.fc == 'multi':
                 # - Multi-precision search
-                self.mix_weight = QuantMultiPrecConv2d(inplane, outplane, _wbits, **kwargs)
+                self.mix_weight = QuantMultiPrecConv2d(inplane, outplane, _wbits, train_scale_param=True, **kwargs)
             else:
                 raise ValueError(f"Unknown fc search, possible values are {self.search_types}")
 
@@ -337,8 +339,15 @@ class QuantMultiPrecConv2d(nn.Module):
         else:
             self.bits = bits
         self.cout = outplane
-        self.alpha_weight = Parameter(torch.Tensor(len(self.bits), self.cout), requires_grad = False)
+        self.alpha_weight = Parameter(torch.Tensor(len(self.bits), self.cout), requires_grad=False)
         self.alpha_weight.data.fill_(0.01)
+
+        # Quantizer
+        self.mix_weight = nn.ModuleList()
+        self.train_scale_param = kwargs.pop('train_scale_param', True)
+        for bit in self.bits:
+            self.mix_weight.append(FQConvQuantization(outplane, num_bits=bit, train_scale_param=self.train_scale_param))
+        
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
 
     def forward(self, input):
@@ -348,7 +357,7 @@ class QuantMultiPrecConv2d(nn.Module):
         weight = conv.weight
         bias = getattr(conv, 'bias', None)
         for i, bit in enumerate(self.bits):
-            quant_weight = _channel_asym_min_max_quantize.apply(weight, bit)
+            quant_weight = self.mix_weight[i](weight)
             scaled_quant_weight = quant_weight * sw[i].view((self.cout, 1, 1, 1))
             mix_quant_weight.append(scaled_quant_weight)
         mix_quant_weight = sum(mix_quant_weight)

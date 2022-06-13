@@ -1,4 +1,5 @@
 import argparse
+import copy
 import os
 import pathlib
 import random
@@ -321,8 +322,17 @@ def main_worker(gpu, ngpus_per_node, args):
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
 
-    optimizer = torch.optim.Adam(model.parameters(), args.lr,
+    # group model/quantization parameters
+    params, q_params = [], []
+    for name, param in model.named_parameters():
+        if ('clip_val' in name) or ('scale_param' in name):
+            q_params += [param]
+        else:
+            params += [param]
+
+    optimizer = torch.optim.Adam(params, args.lr,
                                 weight_decay=args.weight_decay)
+    q_optimizer = torch.optim.SGD(q_params, 1e-4)
     
     # optionally resume from a checkpoint
     if args.resume:
@@ -399,7 +409,7 @@ def main_worker(gpu, ngpus_per_node, args):
             train_sampler.set_epoch(epoch)
         
         # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch, args)
+        train(train_loader, model, criterion, optimizer, q_optimizer, epoch, args)
 
         # evaluate on validation set
         acc1 = validate(val_loader, model, criterion, epoch, args)
@@ -449,7 +459,7 @@ def main_worker(gpu, ngpus_per_node, args):
     print('Test Acc_val@1 {0} @ epoch {1}'.format(test_acc1, best_epoch))
 
 
-def train(train_loader, model, criterion, optimizer, epoch, args):
+def train(train_loader, model, criterion, optimizer, q_optimizer, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -486,8 +496,10 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
+        q_optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        q_optimizer.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)

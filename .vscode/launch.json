@@ -1,0 +1,30 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: re8_w2a8",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/image_classification",
+            "args": [
+                "res8_w2a8/model_debug",
+                "-a", "quantres8_w2a8",
+                "-d", "cifar",
+                "--epochs", "500",
+                "--step-epoch", "50",
+                "-b", "32",
+                "--patience", "100",
+                "--lr", "0.001",
+                "--wd", "1e-4",
+                "--seed", "42",
+                "--gpu", "0"
+            ]
+        }
+    ]
+}

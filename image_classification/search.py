@@ -27,8 +27,6 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision
 
-import pdb
-
 import wandb
 
 import models as models
@@ -776,7 +774,11 @@ def train_epoch(train_loader, model, criterion, optimizer, arch_optimizer, epoch
         target = target.cuda(args.gpu, non_blocking=True)
 
         # compute output
+        if epoch == 21 and i == 365:
+            import pdb; pdb.set_trace()
         output = model(images, temp, args.hard_gs)
+        if sum(torch.isnan(output.flatten())) != 0:
+            import pdb; pdb.set_trace()
         task_loss = criterion(output, target)
 
         # measure accuracy and record loss
