@@ -133,7 +133,10 @@ def main():
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
-        cudnn.deterministic = True
+        np.random.seed(args.seed)
+        cudnn.benchmark = False
+        #cudnn.deterministic = True
+        torch.use_deterministic_algorithms(True)
         warnings.warn('You have chosen to seed training. '
                       'This will turn on the CUDNN deterministic setting, '
                       'which can slow down your training considerably! '
@@ -332,7 +335,11 @@ def main_worker(gpu, ngpus_per_node, args):
 
     optimizer = torch.optim.Adam(params, args.lr,
                                 weight_decay=args.weight_decay)
-    q_optimizer = torch.optim.SGD(q_params, 1e-4)
+    
+    if q_params:
+        q_optimizer = torch.optim.SGD(q_params, 1e-4)
+    else:
+        q_optimizer = None
     
     # optionally resume from a checkpoint
     if args.resume:
@@ -496,10 +503,12 @@ def train(train_loader, model, criterion, optimizer, q_optimizer, epoch, args):
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
-        q_optimizer.zero_grad()
+        if q_optimizer is not None:
+            q_optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        q_optimizer.step()
+        if q_optimizer is not None:
+            q_optimizer.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)

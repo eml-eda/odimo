@@ -7,10 +7,10 @@ from . import hw_models as hw
 
 # MR
 __all__ = [
+    'quantres8_fp',
     'quantres8_w8a8', 'quantres8_w2a8',
     'quantres8_diana',
 ]
-
 
 # MR
 class Backbone(nn.Module):
@@ -247,6 +247,12 @@ def _remove_alpha(state_dict):
 
     return weight_state_dict
 
+
+def quantres8_fp(arch_cfg_path, **kwargs):
+    archas, archws = [[8]] * 10, [[8]] * 10
+    model = TinyMLResNet(qm.FpConv2d, hw.diana(analog_speedup=5.), 
+        archws, archas, qtz_fc='multi', **kwargs)
+    return model
 
 def quantres8_w8a8(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 10, [[8]] * 10
