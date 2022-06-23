@@ -9,8 +9,10 @@ DIANA = {
     'analog': 5.0,
 }
 
+
 def mpic_model(a_bit, w_bit):
     return MPIC[a_bit][w_bit]
+
 
 def diana(analog_speedup=5.):
     def diana_model(accelerator):

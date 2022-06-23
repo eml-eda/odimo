@@ -50,9 +50,12 @@ if [[ "$5" == "ft" ]]; then
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/log_finetune_${strength}.txt
 else
     echo From-Scratch
+    pretrained_model="${arch}/model_${strength}/arch_model_best.pth.tar"
+    #pretrained_model="warmup_8bit.pth.tar"
+    #pretrained_model="warmup_5bit.pth.tar"
     python3 main.py ${path}/${arch}/model_${strength} -a quant${arch} \
-        -d cifar --epochs 500 --step-epoch 50 -b 32 --patience 100 \
+        -d cifar --epochs 500 --step-epoch 50 -b 32 --patience 500 \
         --lr 0.001 --wd 1e-4 \
         --seed 42 --gpu 0 \
-        --ac ${arch}/model_${strength}/arch_model_best.pth.tar | tee ${path}/${arch}/model_${strength}/log_fromscratch_${strength}.txt
+        --ac ${pretrained_model} | tee ${path}/${arch}/model_${strength}/log_fromscratch_${strength}.txt
 fi

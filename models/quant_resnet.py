@@ -8,22 +8,24 @@ from . import hw_models as hw
 # MR
 __all__ = [
     'quantres8_fp',
-    'quantres8_w8a8', 'quantres8_w2a8',
+    'quantres8_w8a8', 'quantres8_w5a8', 'quantres8_w2a8',
     'quantres8_diana',
 ]
 
+
 # MR
 class Backbone(nn.Module):
+
     def __init__(self, conv_func, input_size, bnaff, abits, wbits, **kwargs):
         super().__init__()
         self.bb_1 = BasicBlock(conv_func, 16, 16, wbits[:2], abits[:2], stride=1,
-            bnaff=True, **kwargs)
+                               bnaff=True, **kwargs)
         self.bb_2 = BasicBlock(conv_func, 16, 32, wbits[2:5], abits[2:5], stride=2,
-            bnaff=True, **kwargs)
+                               bnaff=True, **kwargs)
         self.bb_3 = BasicBlock(conv_func, 32, 64, wbits[5:7], abits[5:7], stride=2,
-            bnaff=True, **kwargs)
+                               bnaff=True, **kwargs)
         self.pool = nn.AvgPool2d(kernel_size=8)
-    
+
     def forward(self, x):
         x = self.bb_1(x)
         x = self.bb_2(x)
@@ -36,7 +38,6 @@ class BasicBlock(nn.Module):
     def __init__(self, conv_func, inplanes, planes, archws, archas, stride=1,
                  downsample=None, bnaff=True, **kwargs):
         super().__init__()
-        #self.bn0 = nn.BatchNorm2d(inplanes, affine=bnaff)
         self.conv1 = conv_func(inplanes, planes, archws[0], archas[0], kernel_size=3, stride=stride,
                                groups=1, padding=1, bias=False, **kwargs)
         self.bn1 = nn.BatchNorm2d(planes, affine=bnaff)
@@ -44,14 +45,14 @@ class BasicBlock(nn.Module):
                                groups=1, padding=1, bias=False, **kwargs)
         self.bn2 = nn.BatchNorm2d(planes)
         if stride != 1 or inplanes != planes:
-            self.downsample = conv_func(inplanes, planes, archws[-1], archas[-1], kernel_size=1,
+            self.downsample = conv_func(
+                inplanes, planes, archws[-1], archas[-1], kernel_size=1,
                 groups=1, stride=stride, bias=False, **kwargs)
             self.bn_ds = nn.BatchNorm2d(planes)
         else:
             self.downsample = None
 
     def forward(self, x):
-        #out = self.bn0(x)
         if self.downsample is not None:
             residual = x
         else:
@@ -73,8 +74,8 @@ class BasicBlock(nn.Module):
 
 class TinyMLResNet(nn.Module):
 
-    def __init__(self, conv_func, hw_model, archws, archas, qtz_fc=None, input_size=32, num_classes=10,
-                 bnaff=True, **kwargs):
+    def __init__(self, conv_func, hw_model, archws, archas, qtz_fc=None,
+                 input_size=32, num_classes=10, bnaff=True, **kwargs):
         print('archas: {}'.format(archas))
         print('archws: {}'.format(archws))
 
@@ -87,13 +88,16 @@ class TinyMLResNet(nn.Module):
         else:
             self.qtz_fc = False
         super().__init__()
-        
+
         # Model
-        self.conv1 = conv_func(3, 16, abits=archas[0], wbits=archws[0], kernel_size=3, stride=1, bias=False, padding=1, 
-            groups=1, first_layer=False, **kwargs)
+        self.conv1 = conv_func(3, 16, abits=archas[0], wbits=archws[0],
+                               kernel_size=3, stride=1, bias=False, padding=1,
+                               groups=1, first_layer=False, **kwargs)
         self.bn1 = nn.BatchNorm2d(16, affine=bnaff)
-        self.model = Backbone(conv_func, input_size, bnaff, abits=archas[1:-1], wbits=archws[1:-1], **kwargs)
-        self.fc = conv_func(64, num_classes, abits=archas[-1], wbits=archws[-1], 
+        self.model = Backbone(
+            conv_func, input_size, bnaff, abits=archas[1:-1], wbits=archws[1:-1], **kwargs)
+        self.fc = conv_func(
+            64, num_classes, abits=archas[-1], wbits=archws[-1],
             kernel_size=1, stride=1, groups=1, bias=True, fc=self.qtz_fc, **kwargs)
 
         # Initialize weights
@@ -118,29 +122,32 @@ class TinyMLResNet(nn.Module):
 
         return x
 
-    def fetch_arch_info(self): # BUGGED DA RIFARE
-        sum_cycles, sum_bita, sum_bitw = 0, 0, 0
-        layer_idx = 0
-        for m in self.modules():
-            if isinstance(m, self.conv_func):
-                size_product = m.size_product.item()
-                memory_size = m.memory_size.item()
-                if m.wbit != 2:
-                    sum_bitw += size_product * m.wbit
-                cycles = size_product / mpic_lut(m.abits, m.wbit)
-                bita = m.memory_size.item() * m.abits
-                bitw = m.param_size * m.wbit
-                #weight_shape = list(m.conv.weight.shape)
-                #print('idx {} with shape {}, bitops: {:.3f}M * {} * {}, memory: {:.3f}K * {}, '
-                #      'param: {:.3f}M * {}'.format(layer_idx, weight_shape, size_product, m.abit,
-                #                                   m.wbit, memory_size, m.abit, m.param_size, m.wbit))
-                sum_bitops += bitops
-                sum_cycles += cycles
-                sum_bita += bita
-                sum_bitw += bitw
-                layer_idx += 1
-        return sum_cycles, sum_bita, sum_bitw
-        #return sum_bitops, sum_bita, sum_bitw
+    # def fetch_arch_info(self):  # BUGGED DA RIFARE
+    #     sum_cycles, sum_bita, sum_bitw = 0, 0, 0
+    #     layer_idx = 0
+    #     for m in self.modules():
+    #         if isinstance(m, self.conv_func):
+    #             size_product = m.size_product.item()
+    #             memory_size = m.memory_size.item()
+    #             if m.wbit != 2:
+    #                 sum_bitw += size_product * m.wbit
+    #             cycles = size_product / mpic_lut(m.abits, m.wbit)
+    #             bita = m.memory_size.item() * m.abits
+    #             bitw = m.param_size * m.wbit
+    #             #weight_shape = list(m.conv.weight.shape)
+    #             #print('idx {} with shape {}, bitops: {:.3f}M * {} * {}, memory: {:.3f}K * {}, '
+    #             #      'param: {:.3f}M * {}'.format(layer_idx, weight_shape,
+    #                                                 size_product, m.abit,
+    #             #                                   m.wbit, memory_size,
+    #                                                 m.abit, m.param_size, m.wbit))
+    #             sum_bitops += bitops
+    #             sum_cycles += cycles
+    #             sum_bita += bita
+    #             sum_bitw += bitw
+    #             layer_idx += 1
+    #     return sum_cycles, sum_bita, sum_bitw
+    #     #return sum_bitops, sum_bita, sum_bitw
+
 
 def _load_arch(arch_path, names_nbits):
     checkpoint = torch.load(arch_path)
@@ -158,6 +165,7 @@ def _load_arch(arch_path, names_nbits):
 
     return best_arch, worst_arch
 
+
 # MR
 def _load_arch_multi_prec(arch_path):
     checkpoint = torch.load(arch_path)
@@ -166,7 +174,6 @@ def _load_arch_multi_prec(arch_path):
     best_arch['alpha_activ'], worst_arch['alpha_activ'] = [], []
     best_arch['alpha_weight'], worst_arch['alpha_weight'] = [], []
     for name, params in state_dict.items():
-        full_name = name
         name = name.split('.')[-1]
         if name == 'alpha_activ':
             alpha = params.cpu().numpy()
@@ -193,14 +200,9 @@ def _load_weights(arch_path):
         elif name == 'bias':
             bias = params.cpu().numpy()
             weights[name] = bias
-        #elif name == 'running_mean':
-        #    running_mean = params.cpu().numpy()
-        #    weights[name] = running_mean
-        #elif name == 'running_var':
-        #    running_var = params.cpu().numpy()
-        #    weights[name] = running_var
 
     return weights
+
 
 # MR
 def _load_alpha_state_dict(arch_path):
@@ -214,6 +216,7 @@ def _load_alpha_state_dict(arch_path):
             alpha_state_dict[full_name] = params
 
     return alpha_state_dict
+
 
 # MR
 def _load_alpha_state_dict_as_mp(arch_path, model):
@@ -234,6 +237,7 @@ def _load_alpha_state_dict_as_mp(arch_path, model):
 
     return alpha_state_dict
 
+
 # MR
 def _remove_alpha(state_dict):
     weight_state_dict = copy.deepcopy(state_dict)
@@ -250,15 +254,31 @@ def _remove_alpha(state_dict):
 
 def quantres8_fp(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 10, [[8]] * 10
-    model = TinyMLResNet(qm.FpConv2d, hw.diana(analog_speedup=5.), 
-        archws, archas, qtz_fc='multi', **kwargs)
+    model = TinyMLResNet(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                         archws, archas, qtz_fc='multi', **kwargs)
     return model
+
 
 def quantres8_w8a8(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 10, [[8]] * 10
-    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.), 
-        archws, archas, qtz_fc='multi', **kwargs)
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+                         archws, archas, qtz_fc='multi', **kwargs)
     return model
+
+
+def quantres8_w5a8(arch_cfg_path, **kwargs):
+    archas, archws = [[8]] * 10, [[5]] * 10
+    # Set first and last layer weights precision to 8bit
+    archws[0] = [8]
+    archws[-1] = [8]
+
+    # Build Model
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+                         archws, archas, qtz_fc='multi', **kwargs)
+    state_dict = torch.load(arch_cfg_path)['state_dict']
+    model.load_state_dict(state_dict)
+    return model
+
 
 def quantres8_w2a8(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 10, [[2]] * 10
@@ -267,29 +287,31 @@ def quantres8_w2a8(arch_cfg_path, **kwargs):
     archws[-1] = [8]
 
     # Build Model
-    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.), 
-        archws, archas, qtz_fc='multi', **kwargs)
-    #state_dict = torch.load(arch_cfg_path)['state_dict']
-    #model.load_state_dict(state_dict)
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+                         archws, archas, qtz_fc='multi', **kwargs)
+    # state_dict = torch.load(arch_cfg_path)['state_dict']
+    # model.load_state_dict(state_dict)
     return model
 
+
 # ToDO
-# qtz_fc: None or 'fixed' or 'mixed' or 'multi' 
+# qtz_fc: None or 'fixed' or 'mixed' or 'multi'
 def quantres8_diana(arch_cfg_path, **kwargs):
     wbits, abits = [2, 4, 8], [8]
 
-    ## This block of code is only necessary to comply with the underlying EdMIPS code ##
+    # ## This block of code is only necessary to comply with the underlying EdMIPS code ##
     best_arch, worst_arch = _load_arch_multi_prec(arch_cfg_path)
     archas = [abits for a in best_arch['alpha_activ']]
     archws = [wbits for w_ch in best_arch['alpha_weight']]
     if len(archws) == 9:
         # Case of fixed-precision on last fc layer
         archws.append(8)
-    assert len(archas) == 10 # 10 insead of 8 because conv1 and fc activations are also quantized
-    assert len(archws) == 10 # 10 instead of 8 because conv1 and fc weights are also quantized 
+    assert len(archas) == 10  # 10 insead of 8 because conv1 and fc activations are also quantized
+    assert len(archws) == 10  # 10 instead of 8 because conv1 and fc weights are also quantized
     ##
 
-    model = TinyMLResNet(BasicBlock, qm.QuantMultiPrecActivConv2d, archws, archas, qtz_fc='multi', **kwargs)
+    model = TinyMLResNet(BasicBlock, qm.QuantMultiPrecActivConv2d, archws,
+                         archas, qtz_fc='multi', **kwargs)
     if kwargs['fine_tune']:
         # Load all weights
         state_dict = torch.load(arch_cfg_path)['state_dict']
@@ -297,5 +319,5 @@ def quantres8_diana(arch_cfg_path, **kwargs):
     else:
         # Load only alphas weights
         alpha_state_dict = _load_alpha_state_dict(arch_cfg_path)
-        model.load_state_dict(alpha_state_dict, strict = False)
+        model.load_state_dict(alpha_state_dict, strict=False)
     return model

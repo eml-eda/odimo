@@ -1,0 +1,8 @@
+{
+    "dvc.pythonPath": "/home/risso/miniconda3/envs/dl/bin/python3",
+    "python.linting.enabled": true,
+    "python.linting.flake8Enabled": true,
+    "python.linting.flake8Args": [
+        "--max-line-length=100"
+    ]
+}

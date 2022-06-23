@@ -1,7 +1,6 @@
 from __future__ import print_function
 
 import copy
-from itertools import cycle
 import math
 
 import torch
@@ -22,6 +21,7 @@ class _channel_sym_min_max_quantize(torch.autograd.Function):
     def backward(ctx, grad_output):
         return grad_output, None, None
 
+
 # MR:
 class _bias_asym_min_max_quantize(torch.autograd.Function):
 
@@ -35,13 +35,14 @@ class _bias_asym_min_max_quantize(torch.autograd.Function):
     def backward(ctx, grad_output):
         return grad_output, None, None
 
+
 # MR
 def _bias_min_max_quantize_common(x, ch_min, ch_max, bit):
-    bias_range= ch_max - ch_min
+    bias_range = ch_max - ch_min
     n_steps = 2 ** bit - 1
     S_bias = bias_range / n_steps
     y = (x / S_bias).round() * S_bias
-   
+
     return y
 
 
@@ -58,9 +59,10 @@ class _channel_asym_min_max_quantize(torch.autograd.Function):
     def backward(ctx, grad_output):
         return grad_output, None, None
 
+
 # DJP (TODO: are clones necessary?)
 def _channel_min_max_quantize_common(x, ch_min, ch_max, bit):
-    ### old version
+    # ## old version
     # ch_max_mat = ch_max.unsqueeze(1).unsqueeze(2).unsqueeze(3).expand(x.size())
     # ch_min_mat = ch_min.unsqueeze(1).unsqueeze(2).unsqueeze(3).expand(x.size())
     # y = x.clone()
@@ -75,7 +77,7 @@ def _channel_min_max_quantize_common(x, ch_min, ch_max, bit):
     # y = y.div(S_w).round().clone()
     # y = y.mul(S_w)
 
-    ### new version
+    # ## new version
     if bit != 0:
         ch_range = ch_max - ch_min
         ch_range.masked_fill_(ch_range.eq(0), 1)
@@ -105,10 +107,12 @@ class _prune_channels(torch.autograd.Function):
         # Adapt grad_output to the shape of sw
         return grad_output.expand_as(sw)
 
+
 # DJP
 def asymmetric_linear_quantization_scale_factor(num_bits, saturation_min, saturation_max):
     n = 2 ** num_bits - 1
     return n / (saturation_max - saturation_min)
+
 
 # DJP
 def linear_quantize(input, scale_factor, inplace=False):
@@ -117,6 +121,7 @@ def linear_quantize(input, scale_factor, inplace=False):
         return input
     return torch.floor(scale_factor * input)
 
+
 # DJP
 def linear_dequantize(input, scale_factor, inplace=False):
     if inplace:
@@ -124,12 +129,14 @@ def linear_dequantize(input, scale_factor, inplace=False):
         return input
     return input / scale_factor
 
+
 # DJP
 def clamp(x, min, max, inplace=False):
     if inplace:
         x.clamp_(min, max)
         return x
     return torch.clamp(x, min, max)
+
 
 # DJP
 class LearnedClippedLinearQuantizeSTE(torch.autograd.Function):
@@ -171,13 +178,15 @@ class LearnedClippedLinearQuantization(nn.Module):
         self.inplace = inplace
 
     def forward(self, input):
-        input = LearnedClippedLinearQuantizeSTE.apply(input, self.clip_val, self.num_bits, self.dequantize, self.inplace)
+        input = LearnedClippedLinearQuantizeSTE.apply(
+            input, self.clip_val, self.num_bits, self.dequantize, self.inplace)
         return input
 
     def __repr__(self):
         inplace_str = ', inplace' if self.inplace else ''
-        return '{0}(num_bits={1}, clip_val={2}{3})'.format(self.__class__.__name__, self.num_bits, self.clip_val,
-                                                           inplace_str)
+        return '{0}(num_bits={1}, clip_val={2}{3})'.format(
+            self.__class__.__name__, self.num_bits, self.clip_val, inplace_str)
+
 
 # DJP
 class FQConvQuantizationSTE(torch.autograd.Function):
@@ -195,21 +204,20 @@ class FQConvQuantizationSTE(torch.autograd.Function):
         output = torch.round(output)
         # Divide by number of levels
         output = output / n
-        
+
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
-        #import pdb; pdb.set_trace()
-        #x, scale_param = ctx.saved_tensors
+        # x, scale_param = ctx.saved_tensors
         grad_input = grad_output.clone()
-        #grad_input.masked_fill_(x.le(0), 0)
-        #grad_input.masked_fill_(x.ge(scale_param.data[0]), 0)
+        # grad_input.masked_fill_(x.le(0), 0)
+        # grad_input.masked_fill_(x.ge(scale_param.data[0]), 0)
 
-        #grad_alpha = grad_output.clone()
-        #grad_alpha.masked_fill_(x.lt(scale_param.data[0]), 0)
-        #grad_alpha[input.lt(clip_val.data[0])] = 0
-        #grad_alpha = grad_alpha.sum().expand_as(scale_param)
+        # grad_alpha = grad_output.clone()
+        # grad_alpha.masked_fill_(x.lt(scale_param.data[0]), 0)
+        # grad_alpha[input.lt(clip_val.data[0])] = 0
+        # grad_alpha = grad_alpha.sum().expand_as(scale_param)
 
         return grad_input, None, None
 
@@ -221,37 +229,40 @@ class FQConvQuantization(nn.Module):
         self.cout = cout
         self.num_bits = num_bits
         self.train_scale_param = train_scale_param
-        #self.cout = 1
-        self.scale_param = nn.Parameter(torch.Tensor(self.cout), requires_grad=train_scale_param)
-        self.scale_param.data.fill_(init_scale_param)
+        # self.n_s = cout
+        self.n_s = 1  # One scale-param per layer
+        self.scale_param = nn.Parameter(torch.Tensor(self.n_s), requires_grad=train_scale_param)
+        # self.scale_param.data.fill_(init_scale_param)
+        self.scale_param.data.fill_(-2.)
         self.inplace = inplace
 
     def forward(self, x):
-        # Having a positive scale factor is preferable to avoid instabilities 
+        # Having a positive scale factor is preferable to avoid instabilities
         exp_scale_param = torch.exp(self.scale_param)
-        x_scaled = x / exp_scale_param.view(self.cout, 1, 1, 1)
+        x_scaled = x / exp_scale_param.view(self.n_s, 1, 1, 1)
         # Quantize
         x_q = FQConvQuantizationSTE.apply(x_scaled, self.num_bits, self.inplace)
         # Multiply by scale factor
-        x_deq = x_q * exp_scale_param.view(self.cout, 1, 1, 1)
+        x_deq = x_q * exp_scale_param.view(self.n_s, 1, 1, 1)
         return x_deq
-    
+
     def __repr__(self):
-        return f'{self.__class__.__name__}(num_bits={self.num_bits}, scale_param={self.scale_param})'
+        return f'{self.__class__.__name__}(num_bits={self.num_bits}, \
+            scale_param={self.scale_param})'
+
 
 # MR
 class QuantMultiPrecActivConv2d(nn.Module):
 
     def __init__(self, inplane, outplane, wbits=None, abits=None, fc=None, **kwargs):
         super().__init__()
-        
         self.fine_tune = kwargs.pop('fine_tune', False)
         self.first_layer = kwargs.pop('first_layer', False)
         self.fc = fc
 
         self.abits = abits
         self.wbits = wbits
-        
+
         self.search_types = ['fixed', 'mixed', 'multi']
         if fc in self.search_types:
             self.fc = fc
@@ -270,11 +281,12 @@ class QuantMultiPrecActivConv2d(nn.Module):
                 # - Fixed quantization on 8bits
                 self.mix_weight = QuantMixChanConv2d(inplane, outplane, 8, **kwargs)
             elif self.fc == 'mixed':
-                # - Mixed-precision search 
+                # - Mixed-precision search
                 self.mix_weight = QuantMixChanConv2d(inplane, outplane, _wbits, **kwargs)
             elif self.fc == 'multi':
                 # - Multi-precision search
-                self.mix_weight = QuantMultiPrecConv2d(inplane, outplane, _wbits, train_scale_param=True, **kwargs)
+                self.mix_weight = QuantMultiPrecConv2d(
+                    inplane, outplane, _wbits, train_scale_param=True, **kwargs)
             else:
                 raise ValueError(f"Unknown fc search, possible values are {self.search_types}")
 
@@ -299,8 +311,9 @@ class QuantMultiPrecActivConv2d(nn.Module):
             out = self.mix_activ(input)
         else:
             out = _channel_asym_min_max_quantize.apply(input, 8)
-        out = self.mix_weight(out) 
+        out = self.mix_weight(out)
         return out
+
 
 # MR
 class QuantPaCTActiv(nn.Module):
@@ -319,20 +332,20 @@ class QuantPaCTActiv(nn.Module):
 
     def forward(self, input):
         outs = []
-        #self.alpha_activ = torch.nn.Parameter(clamp(self.alpha_activ,-100,+100))
-        sw = F.one_hot(torch.argmax(self.alpha_activ), num_classes = len(self.bits))
+        # self.alpha_activ = torch.nn.Parameter(clamp(self.alpha_activ,-100,+100))
+        sw = F.one_hot(torch.argmax(self.alpha_activ), num_classes=len(self.bits))
         for i, branch in enumerate(self.mix_activ):
             # torch.nan_to_num() necessary to avoid nan in the output when multiplying by zero
             outs.append(torch.nan_to_num(branch(input)) * sw[i])
         activ = sum(outs)
         return activ
 
+
 # MR
 class QuantMultiPrecConv2d(nn.Module):
-    
+
     def __init__(self, inplane, outplane, bits, **kwargs):
         super(QuantMultiPrecConv2d, self).__init__()
-        #assert not kwargs['bias']
         kwargs.pop('abit', None)
         if type(bits) == int:
             self.bits = [bits]
@@ -346,8 +359,10 @@ class QuantMultiPrecConv2d(nn.Module):
         self.mix_weight = nn.ModuleList()
         self.train_scale_param = kwargs.pop('train_scale_param', True)
         for bit in self.bits:
-            self.mix_weight.append(FQConvQuantization(outplane, num_bits=bit, train_scale_param=self.train_scale_param))
-        
+            self.mix_weight.append(
+                FQConvQuantization(
+                    outplane, num_bits=bit, train_scale_param=self.train_scale_param))
+
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
 
     def forward(self, input):
@@ -366,9 +381,10 @@ class QuantMultiPrecConv2d(nn.Module):
         else:
             quant_bias = bias
         out = F.conv2d(
-            input, mix_quant_weight, quant_bias, conv.stride, conv.padding, conv.dilation, conv.groups)
+            input, mix_quant_weight, quant_bias, conv.stride,
+            conv.padding, conv.dilation, conv.groups)
         return out
-    
+
 
 # MR
 class QuantMixActivChanConv2d(nn.Module):
@@ -457,7 +473,6 @@ class QuantMixChanConv2d(nn.Module):
 
     def __init__(self, inplane, outplane, bits, **kwargs):
         super(QuantMixChanConv2d, self).__init__()
-        #assert not kwargs['bias']
         self.bits = bits
         self.outplane = outplane
 
@@ -467,7 +482,6 @@ class QuantMixChanConv2d(nn.Module):
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
 
     def forward(self, input):
-        #assert self.bias is None
         conv = self.conv
         bias = getattr(conv, 'bias', None)
         quant_weight = _channel_asym_min_max_quantize.apply(conv.weight, self.bits)
@@ -495,7 +509,7 @@ class MixQuantPaCTActiv(nn.Module):
 
     def forward(self, input, temp, is_hard):
         outs = []
-        #self.alpha_activ = torch.nn.Parameter(clamp(self.alpha_activ,-100,+100))
+        # self.alpha_activ = torch.nn.Parameter(clamp(self.alpha_activ,-100,+100))
         if not self.gumbel:
             sw = F.softmax(self.alpha_activ/temp, dim=0)
         else:
@@ -532,7 +546,8 @@ class MixQuantChanConv2d(nn.Module):
         mix_quant_weight = sum(mix_quant_weight)
         conv = self.conv_list[0]
         out = F.conv2d(
-            input, mix_quant_weight, conv.bias, conv.stride, conv.padding, conv.dilation, conv.groups)
+            input, mix_quant_weight, conv.bias, conv.stride,
+            conv.padding, conv.dilation, conv.groups)
         return out
 
 
@@ -541,7 +556,6 @@ class SharedMixQuantChanConv2d(nn.Module):
 
     def __init__(self, inplane, outplane, bits, gumbel=False, **kwargs):
         super(SharedMixQuantChanConv2d, self).__init__()
-        #assert not kwargs['bias']
         self.bits = bits
         self.gumbel = gumbel
         if isinstance(kwargs['kernel_size'], tuple):
@@ -562,7 +576,7 @@ class SharedMixQuantChanConv2d(nn.Module):
     def forward(self, input, temp, is_hard):
         mix_quant_weight = []
         mix_wbit = 0
-        #self.alpha_weight = torch.nn.Parameter(clamp(self.alpha_weight, -100, +100))
+        # self.alpha_weight = torch.nn.Parameter(clamp(self.alpha_weight, -100, +100))
         if not self.gumbel:
             sw = F.softmax(self.alpha_weight / temp, dim=0)
         else:
@@ -572,7 +586,7 @@ class SharedMixQuantChanConv2d(nn.Module):
         weight = conv.weight
         bias = getattr(conv, 'bias', None)
         for i, bit in enumerate(self.bits):
-            quant_weight = _channel_asym_min_max_quantize.apply(weight, bit) 
+            quant_weight = _channel_asym_min_max_quantize.apply(weight, bit)
             scaled_quant_weight = quant_weight * sw[i]
             mix_quant_weight.append(scaled_quant_weight)
             # Complexity
@@ -583,7 +597,8 @@ class SharedMixQuantChanConv2d(nn.Module):
             quant_bias = bias
         mix_quant_weight = sum(mix_quant_weight)
         out = F.conv2d(
-            input, mix_quant_weight, quant_bias, conv.stride, conv.padding, conv.dilation, conv.groups)
+            input, mix_quant_weight, quant_bias, conv.stride,
+            conv.padding, conv.dilation, conv.groups)
         # Measure weight complexity for reg-loss
         w_complexity = mix_wbit * self.param_size
         return out, w_complexity
@@ -594,11 +609,10 @@ class SharedMultiPrecConv2d(nn.Module):
 
     def __init__(self, inplane, outplane, bits, gumbel=False, **kwargs):
         super().__init__()
-        #assert not kwargs['bias']
         self.bits = bits
         self.gumbel = gumbel
         self.cout = outplane
-        
+
         self.alpha_weight = Parameter(torch.Tensor(len(self.bits), self.cout))
         # Alpha init
         self.alpha_init = kwargs.pop('alpha_init', 'same')
@@ -621,7 +635,7 @@ class SharedMultiPrecConv2d(nn.Module):
                 self.alpha_weight.data[i].fill_(scaled_logit[i])
         else:
             raise ValueError(f'Unknown alpha_init: {self.alpha_init}')
-        
+
         # Quantizer
         self.mix_weight = nn.ModuleList()
         for bit in self.bits:
@@ -630,21 +644,21 @@ class SharedMultiPrecConv2d(nn.Module):
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
 
         if self.gumbel:
-            self.register_buffer('sw_buffer', torch.zeros(self.alpha_weight.shape, dtype=torch.float))
+            self.register_buffer(
+                'sw_buffer', torch.zeros(self.alpha_weight.shape, dtype=torch.float))
 
     def forward(self, input, temp, is_hard):
         mix_quant_weight = []
-        mix_wbit = 0
         if not self.gumbel:
             sw = F.softmax(self.alpha_weight/temp, dim=0)
         else:
             # If is_hard is True the output is one-hot
-            if self.training: # If model.train()
+            if self.training:  # If model.train()
                 sw = F.gumbel_softmax(self.alpha_weight, tau=temp, hard=is_hard, dim=0)
                 self.sw_buffer = sw.clone().detach()
-            else: # If model.eval()
+            else:  # If model.eval()
                 sw = self.sw_buffer
-        
+
         conv = self.conv
         weight = conv.weight
         bias = getattr(conv, 'bias', None)
@@ -663,15 +677,17 @@ class SharedMultiPrecConv2d(nn.Module):
         mix_quant_weight = sum(mix_quant_weight)
         # Compute conv
         out = F.conv2d(
-            input, mix_quant_weight, quant_bias, conv.stride, conv.padding, conv.dilation, conv.groups)
-        
-        return out 
+            input, mix_quant_weight, quant_bias, conv.stride,
+            conv.padding, conv.dilation, conv.groups)
+
+        return out
 
 
 # MR
 class MultiPrecActivConv2d(nn.Module):
 
-    def __init__(self, hw_model, inplane, outplane, wbits, abits, share_weight=True, fc=None, **kwargs):
+    def __init__(self, hw_model, inplane, outplane, wbits, abits,
+                 share_weight=True, fc=None, **kwargs):
         super().__init__()
         self.hw_model = hw_model
         self.wbits = wbits
@@ -693,20 +709,23 @@ class MultiPrecActivConv2d(nn.Module):
         # build mix-precision branches
         self.mix_activ = MixQuantPaCTActiv(self.abits, gumbel=self.gumbel)
         # for multiprec, only share-weight is feasible
-        assert share_weight == True
+        assert share_weight
         if not self.fc:
-            self.mix_weight = SharedMultiPrecConv2d(inplane, outplane, self.wbits, gumbel=self.gumbel, **kwargs) 
+            self.mix_weight = SharedMultiPrecConv2d(
+                inplane, outplane, self.wbits, gumbel=self.gumbel, **kwargs)
         else:
             # If the layer is fc we can use:
             if self.fc == 'fixed':
                 # Fixed quantization on 8bits
                 self.mix_weight = QuantMixChanConv2d(inplane, outplane, 8, **kwargs)
             elif self.fc == 'mixed':
-                # Mixed-precision search 
-                self.mix_weight = SharedMixQuantChanConv2d(inplane, outplane, wbits, gumbel=self.gumbel, **kwargs)
+                # Mixed-precision search
+                self.mix_weight = SharedMixQuantChanConv2d(
+                    inplane, outplane, wbits, gumbel=self.gumbel, **kwargs)
             elif self.fc == 'multi':
                 # Multi-precision search
-                self.mix_weight = SharedMultiPrecConv2d(inplane, outplane, wbits, gumbel=self.gumbel, **kwargs)
+                self.mix_weight = SharedMultiPrecConv2d(
+                    inplane, outplane, wbits, gumbel=self.gumbel, **kwargs)
             else:
                 raise ValueError(f"Unknown fc search, possible values are {self.search_types}")
 
@@ -741,7 +760,7 @@ class MultiPrecActivConv2d(nn.Module):
         wbits = self.mix_weight.bits
         if not self.fix_qtz:
             s_a = F.softmax(self.mix_activ.alpha_activ/self.temp, dim=0)
-        else: # Layer with fixed quantization activations at the maximum available bit width
+        else:  # Layer with fixed quantization activations at the maximum available bit width
             s_a = torch.zeros(len(abits), dtype=torch.float).to(self.mix_activ.alpha_activ.device)
             s_a[-1] = 1.
         s_w = F.softmax(self.mix_weight.alpha_weight/self.temp, dim=0)
@@ -749,18 +768,11 @@ class MultiPrecActivConv2d(nn.Module):
         cycles = []
         cycle = 0
         for i, bit in enumerate(wbits):
-            if bit == 2: # Analog accelerator
+            if bit == 2:  # Analog accelerator
                 cycle = sum(s_w[i]) / self.hw_model('analog')
-            else: # Digital accelerator
+            else:  # Digital accelerator
                 cycle = sum(s_w[i]) / self.hw_model('digital')
             cycles.append(cycle)
-
-        # MPIC Model
-        #for i_a in range(len(abits)):
-        #    complexity_w = 0
-        #    for i_w in range(len(wbits)):
-        #        complexity_w += sum(s_w[i_w]) / self.hw_model(abits[i_a], wbits[i_w])
-        #    complexity += s_a[i_a] * complexity_w
 
         # Build tensor of cycles
         # NB: torch.tensor() does not preserve gradients!!!
@@ -768,9 +780,9 @@ class MultiPrecActivConv2d(nn.Module):
         # Compute softmax
         s_c = F.softmax(t_cycles, dim=0)
         t_c = torch.dot(s_c, t_cycles)
-        
+
         return t_c * self.size_product.item() / cout
-        #return torch.max(torch.tensor(cycles)) * self.size_product.item() / cout
+        # return torch.max(torch.tensor(cycles)) * self.size_product.item() / cout
 
     def fetch_best_arch(self, layer_idx):
         size_product = float(self.size_product.cpu().numpy())
@@ -833,18 +845,18 @@ class MultiPrecActivConv2d(nn.Module):
             if self.fc == 'fixed':
                 best_wbit = 8
                 best_weight = 8
-                mac_cycle = self.hw_model('digital')
+                # mac_cycle = self.hw_model('digital')
             elif self.fc == 'mixed':
                 best_wbit = wbits[best_weight]
-                mac_cycle = self.hw_model('digital')
+                # mac_cycle = self.hw_model('digital')
 
         if not self.fix_qtz:
             best_arch = {'best_activ': [best_activ], 'best_weight': [best_weight]}
-            bitops = size_product * abits[best_activ] * best_wbit
+            # bitops = size_product * abits[best_activ] * best_wbit
             bita = memory_size * abits[best_activ]
         else:
             best_arch = {'best_activ': [8], 'best_weight': [best_weight]}
-            bitops = size_product * 8 * best_wbit
+            # bitops = size_product * 8 * best_wbit
             bita = memory_size * 8
 
         bitw = self.param_size * best_wbit
@@ -854,4 +866,4 @@ class MultiPrecActivConv2d(nn.Module):
         mixbitw = self.param_size * mix_wbit
 
         return best_arch, cycles, bita, bitw, mixbitops, mixbita, mixbitw
-        #return best_arch, bitops, bita, bitw, mixbitops, mixbita, mixbitw
+        # return best_arch, bitops, bita, bitw, mixbitops, mixbita, mixbitw

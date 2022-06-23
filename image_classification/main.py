@@ -1,5 +1,4 @@
 import argparse
-import copy
 import os
 import pathlib
 import random
@@ -8,10 +7,7 @@ import sys
 import time
 import warnings
 
-sys.path.insert(1, os.path.join(sys.path[0], '..'))
-
 import numpy as np
-
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -24,14 +20,15 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision
-        
+
 import wandb
 
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import models as models
 
 model_names = sorted(name for name in models.__dict__
-    if name.islower() and not name.startswith("__")
-    and callable(models.__dict__[name]))
+                     if name.islower() and not name.startswith("__")
+                     and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('data', metavar='DIR',
@@ -39,8 +36,8 @@ parser.add_argument('data', metavar='DIR',
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet8',
                     choices=model_names,
                     help='model architecture: ' +
-                        ' | '.join(model_names) +
-                        ' (default: resnet8)')
+                         ' | '.join(model_names) +
+                         ' (default: resnet8)')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 # MR
@@ -106,6 +103,7 @@ parser.add_argument('--tags', nargs='+', default=None,
 
 best_acc1 = 0
 
+
 def main():
     args = parser.parse_args()
     print(args)
@@ -114,19 +112,18 @@ def main():
 
     if args.visualization:
         wandb.init(
-            project = args.project,
-            entity = 'matteorisso',
-            name = f'Fine-Tune: {complexity_decay}',
-            notes = f'Fine-Tune arch found with {complexity_decay} strength',
-            tags = ['Fine-Tune', args.arch] + args.tags,
-            dir = args.data
+            project=args.project,
+            entity='matteorisso',
+            name=f'Fine-Tune: {complexity_decay}',
+            notes=f'Fine-Tune arch found with {complexity_decay} strength',
+            tags=['Fine-Tune', args.arch] + args.tags,
+            dir=args.data
         )
         wandb.config.update(args)
         wandb.define_metric('Train/Loss', summary='min')
         wandb.define_metric('Train/Acc', summary='max')
         wandb.define_metric('Test/Loss', summary='min')
         wandb.define_metric('Test/Acc', summary='max')
-
 
     args.data = pathlib.Path(args.data)
 
@@ -135,7 +132,6 @@ def main():
         torch.manual_seed(args.seed)
         np.random.seed(args.seed)
         cudnn.benchmark = False
-        #cudnn.deterministic = True
         torch.use_deterministic_algorithms(True)
         warnings.warn('You have chosen to seed training. '
                       'This will turn on the CUDNN deterministic setting, '
@@ -184,7 +180,7 @@ def main_worker(gpu, ngpus_per_node, args):
             args.rank = args.rank * ngpus_per_node + gpu
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size, rank=args.rank)
-    
+
     # MR
     if 'imagenet' in args.dataset:
         num_classes = 1000
@@ -232,23 +228,13 @@ def main_worker(gpu, ngpus_per_node, args):
             transforms.RandomRotation(15),
             transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
             transforms.RandomHorizontalFlip(0.5),
-            transforms.ToTensor(), 
+            transforms.ToTensor(),
         ])
 
         transform_test = transforms.Compose([
             transforms.ToTensor(),
-            #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        ]) 
-
-        # Original Data Prep
-        #normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-        #                                 std=[0.229, 0.224, 0.225])
-        #transform = transforms.Compose([
-        #        #transforms.Resize((224,224)),
-        #        transforms.RandomHorizontalFlip(),
-        #        transforms.ToTensor(),
-        #        normalize,
-        #    ])
+            # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
 
         if args.distributed:
             train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -258,29 +244,32 @@ def main_worker(gpu, ngpus_per_node, args):
         data_dir = args.data.parent.parent / 'data'
 
         train_set = torchvision.datasets.CIFAR10(root=data_dir, train=True,
-                                                download=True, transform=transform_train)
+                                                 download=True, transform=transform_train)
 
         test_set = torchvision.datasets.CIFAR10(root=data_dir, train=False,
-                                               download=True, transform=transform_test)
+                                                download=True, transform=transform_test)
 
         # Split dataset into train and validation
         train_len = int(len(train_set) * 0.8)
         val_len = len(train_set) - train_len
         # Fix generator seed for reproducibility
         data_gen = torch.Generator().manual_seed(args.seed)
-        train_dataset, val_dataset = torch.utils.data.random_split(train_set, [train_len, val_len], generator=data_gen)
+        train_dataset, val_dataset = torch.utils.data.random_split(
+            train_set, [train_len, val_len], generator=data_gen)
 
         train_loader = torch.utils.data.DataLoader(
             train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
             num_workers=args.workers, pin_memory=True, sampler=train_sampler)
 
-        val_loader = torch.utils.data.DataLoader(val_dataset,
+        val_loader = torch.utils.data.DataLoader(
+            val_dataset,
             batch_size=args.batch_size, shuffle=True,
             num_workers=args.workers, pin_memory=True)
-        
+
         _idxs = np.load('perf_samples_idxs.npy')
         test_set = torch.utils.data.Subset(test_set, _idxs)
-        test_loader = torch.utils.data.DataLoader(test_set,
+        test_loader = torch.utils.data.DataLoader(
+            test_set,
             batch_size=args.batch_size, shuffle=False,
             num_workers=args.workers, pin_memory=True)
 
@@ -291,7 +280,8 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> loading architecture config from '{}'".format(args.arch_cfg))
         else:
             print("=> no architecture found at '{}'".format(args.arch_cfg))
-    model = models.__dict__[args.arch](args.arch_cfg, num_classes=num_classes, fine_tune=args.fine_tune)
+    model = models.__dict__[args.arch](
+        args.arch_cfg, num_classes=num_classes, fine_tune=args.fine_tune)
 
     if args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
@@ -333,14 +323,16 @@ def main_worker(gpu, ngpus_per_node, args):
         else:
             params += [param]
 
-    optimizer = torch.optim.Adam(params, args.lr,
-                                weight_decay=args.weight_decay)
-    
+    optimizer = torch.optim.Adam(
+        params, args.lr, weight_decay=args.weight_decay)
+
     if q_params:
-        q_optimizer = torch.optim.SGD(q_params, 1e-4)
+        q_optimizer = torch.optim.SGD(q_params, 1e-5)
+        q_scheduler = torch.optim.lr_scheduler.StepLR(q_optimizer, 50)
     else:
         q_optimizer = None
-    
+        q_scheduler = None
+
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
@@ -363,47 +355,6 @@ def main_worker(gpu, ngpus_per_node, args):
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
-    cudnn.benchmark = True
-    
-    
-    # Data loading code
-    #quantres18_w248a248_multiprectraindir = os.path.join(args.data, 'train')
-    #valdir = os.path.join(args.data, 'val')
-    #normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-    #                                 std=[0.229, 0.224, 0.225])
-
-    #if 'inception' in args.arch:
-    #    crop_size, short_size = 299, 342
-    #else:
-    #    crop_size, short_size = 224, 256
-    #train_dataset = datasets.ImageFolder(
-    #    traindir,
-    #    transforms.Compose([
-    #        transforms.RandomResizedCrop(crop_size),
-    #        transforms.RandomHorizontalFlip(),
-    #        transforms.ToTensor(),
-    #        normalize,
-    #    ]))
-
-    #if args.distributed:
-    #    train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-    #else:
-    #    train_sampler = None
-
-    #train_loader = torch.utils.data.DataLoader(
-    #    train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
-    #    num_workers=args.workers, pin_memory=True, sampler=train_sampler)
-
-    #val_loader = torch.utils.data.DataLoader(
-    #    datasets.ImageFolder(valdir, transforms.Compose([
-    #        transforms.Resize(short_size),
-    #        transforms.CenterCrop(crop_size),
-    #        transforms.ToTensor(),
-    #        normalize,
-    #    ])),
-    #    batch_size=args.batch_size, shuffle=False,
-    #    num_workers=args.workers, pin_memory=True)
-
     if args.evaluate:
         validate(val_loader, model, criterion, args)
         return
@@ -414,7 +365,7 @@ def main_worker(gpu, ngpus_per_node, args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
-        
+
         # train for one epoch
         train(train_loader, model, criterion, optimizer, q_optimizer, epoch, args)
 
@@ -423,6 +374,8 @@ def main_worker(gpu, ngpus_per_node, args):
         acc1_test = validate(test_loader, model, criterion, epoch, args)
 
         adjust_learning_rate(optimizer, epoch, args)
+        if q_scheduler is not None:
+            q_scheduler.step()
 
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
@@ -437,15 +390,8 @@ def main_worker(gpu, ngpus_per_node, args):
             epoch_wout_improve += 1
             print(f'Epoch without improvement: {epoch_wout_improve}')
 
-        #print('========= architecture info =========')
-        #if hasattr(model, 'module'):
-        #    bitops, bita, bitw = model.module.fetch_arch_info()
-        #else:
-        #    bitops, bita, bitw = model.fetch_arch_info()
-        #print('model with bitops: {:.3f}M, bita: {:.3f}K, bitw: {:.3f}M'.format(bitops, bita, bitw))
-
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                and args.rank % ngpus_per_node == 0):
+                                                    and args.rank % ngpus_per_node == 0):
             save_checkpoint(args.data, {
                 'epoch': epoch + 1,
                 'arch': args.arch,
@@ -453,13 +399,13 @@ def main_worker(gpu, ngpus_per_node, args):
                 'best_acc1': best_acc1,
                 'optimizer': optimizer.state_dict(),
             }, is_best, epoch, args.step_epoch)
-        
+
         # Early-Stop
         if epoch_wout_improve >= args.patience:
             print(f'Early stopping at epoch {epoch}')
             break
-    
-    best_acc1_val = best_acc1 
+
+    best_acc1_val = best_acc1
     print('Best Acc_val@1 {0} @ epoch {1}'.format(best_acc1_val, best_epoch))
 
     test_acc1 = best_acc1_test
@@ -516,16 +462,15 @@ def train(train_loader, model, criterion, optimizer, q_optimizer, epoch, args):
 
         if i % args.print_freq == 0:
             progress.display(i)
-    
+
     # Visualization
     if args.visualization:
         wandb.log({
                 "Epoch": epoch,
-                "Train/Loss": losses.avg, 
+                "Train/Loss": losses.avg,
                 "Train/Acc": top1.avg,
                 "Train/lr": curr_lr
             })
-
 
 
 def validate(val_loader, model, criterion, epoch, args):
@@ -572,7 +517,7 @@ def validate(val_loader, model, criterion, epoch, args):
     if args.visualization:
         wandb.log({
                 "Epoch": epoch,
-                "Test/Loss": losses.avg, 
+                "Test/Loss": losses.avg,
                 "Test/Acc": top1.avg
             })
     return top1.avg
