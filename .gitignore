@@ -3,3 +3,6 @@ image_classification/data
 wandb/
 log*
 *.pth.tar
+*egg-info
+build
+dist

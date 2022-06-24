@@ -23,7 +23,7 @@ import torchvision
 
 import wandb
 
-sys.path.insert(1, os.path.join(sys.path[0], '..'))
+# sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import models as models
 
 model_names = sorted(name for name in models.__dict__
