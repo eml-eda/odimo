@@ -327,7 +327,7 @@ def main_worker(gpu, ngpus_per_node, args):
         params, args.lr, weight_decay=args.weight_decay)
 
     if q_params:
-        q_optimizer = torch.optim.SGD(q_params, 1e-5)
+        q_optimizer = torch.optim.SGD(q_params, 5e-5)
         q_scheduler = torch.optim.lr_scheduler.StepLR(q_optimizer, 50)
     else:
         q_optimizer = None

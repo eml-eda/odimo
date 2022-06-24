@@ -6,6 +6,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions import Normal
 from torch.nn.parameter import Parameter
 
 
@@ -224,16 +225,26 @@ class FQConvQuantizationSTE(torch.autograd.Function):
 
 # MR (Ref: https://arxiv.org/abs/1912.09356)
 class FQConvQuantization(nn.Module):
-    def __init__(self, cout, num_bits, init_scale_param=0., train_scale_param=False, inplace=False):
+    def __init__(self, cout, k_size, num_bits, init_scale_param=0.,
+                 train_scale_param=False, inplace=False):
         super().__init__()
         self.cout = cout
+        self.k_size = k_size
         self.num_bits = num_bits
         self.train_scale_param = train_scale_param
-        # self.n_s = cout
+        # self.n_s = cout  # One scale-param per channel
         self.n_s = 1  # One scale-param per layer
         self.scale_param = nn.Parameter(torch.Tensor(self.n_s), requires_grad=train_scale_param)
-        # self.scale_param.data.fill_(init_scale_param)
-        self.scale_param.data.fill_(-2.)
+        if num_bits == 2:
+            # Choose s in such a way the [-1, 0, 1] values are equiprobable
+            mu = torch.tensor([0.])
+            std = math.sqrt(2/torch.tensor([self.cout * self.k_size]))
+            n = Normal(mu, std)  # mean, std
+            # P[x / e^s < -1/2] = p -> P[x < -1/2 * e^s] = p
+            # icdf(p) = -1/2 * e^s -> s = ln(-2 * icdf(p))
+            p = torch.tensor([1/3])
+            init_scale_param = math.log(-2 * n.icdf(p))
+        self.scale_param.data.fill_(init_scale_param)
         self.inplace = inplace
 
     def forward(self, x):
@@ -355,13 +366,18 @@ class QuantMultiPrecConv2d(nn.Module):
         self.alpha_weight = Parameter(torch.Tensor(len(self.bits), self.cout), requires_grad=False)
         self.alpha_weight.data.fill_(0.01)
 
+        if isinstance(kwargs['kernel_size'], tuple):
+            k_size = kwargs['kernel_size'][0] * kwargs['kernel_size'][1]
+        else:
+            k_size = kwargs['kernel_size'] * kwargs['kernel_size']
+
         # Quantizer
         self.mix_weight = nn.ModuleList()
         self.train_scale_param = kwargs.pop('train_scale_param', True)
         for bit in self.bits:
             self.mix_weight.append(
                 FQConvQuantization(
-                    outplane, num_bits=bit, train_scale_param=self.train_scale_param))
+                    outplane, k_size, num_bits=bit, train_scale_param=self.train_scale_param))
 
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
 
