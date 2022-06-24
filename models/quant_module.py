@@ -235,15 +235,15 @@ class FQConvQuantization(nn.Module):
         # self.n_s = cout  # One scale-param per channel
         self.n_s = 1  # One scale-param per layer
         self.scale_param = nn.Parameter(torch.Tensor(self.n_s), requires_grad=train_scale_param)
-        if num_bits == 2:
-            # Choose s in such a way the [-1, 0, 1] values are equiprobable
-            mu = torch.tensor([0.])
-            std = math.sqrt(2/torch.tensor([self.cout * self.k_size]))
-            n = Normal(mu, std)  # mean, std
-            # P[x / e^s < -1/2] = p -> P[x < -1/2 * e^s] = p
-            # icdf(p) = -1/2 * e^s -> s = ln(-2 * icdf(p))
-            p = torch.tensor([1/3])
-            init_scale_param = math.log(-2 * n.icdf(p))
+        # if num_bits == 2:
+        # Choose s in such a way the [-1, 0, 1] values are equiprobable
+        mu = torch.tensor([0.])
+        std = math.sqrt(2/torch.tensor([self.cout * self.k_size]))
+        n = Normal(mu, std)  # mean, std
+        # P[x / e^s < -1/2] = p -> P[x < -1/2 * e^s] = p
+        # icdf(p) = -1/2 * e^s -> s = ln(-2 * icdf(p))
+        p = torch.tensor([1/(2**num_bits-1)])
+        init_scale_param = math.log(-2 * n.icdf(p))
         self.scale_param.data.fill_(init_scale_param)
         self.inplace = inplace
 
