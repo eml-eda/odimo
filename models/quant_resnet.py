@@ -10,6 +10,7 @@ __all__ = [
     'quantres8_fp',
     'quantres8_w8a8', 'quantres8_w5a8', 'quantres8_w2a8',
     'quantres8_diana',
+    'quantres8_diana5', 'quantres8_diana10', 'quantres8_diana100',
 ]
 
 
@@ -94,7 +95,7 @@ class TinyMLResNet(nn.Module):
                                kernel_size=3, stride=1, bias=False, padding=1,
                                groups=1, first_layer=False, **kwargs)
         self.bn1 = nn.BatchNorm2d(16, affine=bnaff)
-        self.model = Backbone(
+        self.backbone = Backbone(
             conv_func, input_size, bnaff, abits=archas[1:-1], wbits=archws[1:-1], **kwargs)
         self.fc = conv_func(
             64, num_classes, abits=archas[-1], wbits=archws[-1],
@@ -115,7 +116,7 @@ class TinyMLResNet(nn.Module):
         x = self.conv1(x)
         x = self.bn1(x)
 
-        x = self.model(x)
+        x = self.backbone(x)
 
         x = x if self.qtz_fc else x.view(x.size(0), -1)
         x = self.fc(x)[:, :, 0, 0] if self.qtz_fc else self.fc(x)
@@ -294,10 +295,22 @@ def quantres8_w2a8(arch_cfg_path, **kwargs):
     return model
 
 
+def quantres8_diana5(arch_cfg_path, **kwargs):
+    return quantres8_diana(arch_cfg_path, **kwargs)
+
+
+def quantres8_diana10(arch_cfg_path, **kwargs):
+    return quantres8_diana(arch_cfg_path, **kwargs)
+
+
+def quantres8_diana100(arch_cfg_path, **kwargs):
+    return quantres8_diana(arch_cfg_path, **kwargs)
+
+
 # ToDO
 # qtz_fc: None or 'fixed' or 'mixed' or 'multi'
 def quantres8_diana(arch_cfg_path, **kwargs):
-    wbits, abits = [2, 4, 8], [8]
+    wbits, abits = [2, 8], [8]
 
     # ## This block of code is only necessary to comply with the underlying EdMIPS code ##
     best_arch, worst_arch = _load_arch_multi_prec(arch_cfg_path)
@@ -310,12 +323,13 @@ def quantres8_diana(arch_cfg_path, **kwargs):
     assert len(archws) == 10  # 10 instead of 8 because conv1 and fc weights are also quantized
     ##
 
-    model = TinyMLResNet(BasicBlock, qm.QuantMultiPrecActivConv2d, archws,
-                         archas, qtz_fc='multi', **kwargs)
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+                         archws, archas, qtz_fc='multi', **kwargs)
+
     if kwargs['fine_tune']:
         # Load all weights
         state_dict = torch.load(arch_cfg_path)['state_dict']
-        model.load_state_dict(state_dict, strict=False)
+        model.load_state_dict(state_dict)
     else:
         # Load only alphas weights
         alpha_state_dict = _load_alpha_state_dict(arch_cfg_path)
