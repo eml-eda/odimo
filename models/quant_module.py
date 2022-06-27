@@ -356,7 +356,7 @@ class QuantPaCTActiv(nn.Module):
 class QuantMultiPrecConv2d(nn.Module):
 
     def __init__(self, inplane, outplane, bits, **kwargs):
-        super(QuantMultiPrecConv2d, self).__init__()
+        super().__init__()
         kwargs.pop('abit', None)
         if type(bits) == int:
             self.bits = [bits]
@@ -652,10 +652,17 @@ class SharedMultiPrecConv2d(nn.Module):
         else:
             raise ValueError(f'Unknown alpha_init: {self.alpha_init}')
 
+        if isinstance(kwargs['kernel_size'], tuple):
+            k_size = kwargs['kernel_size'][0] * kwargs['kernel_size'][1]
+        else:
+            k_size = kwargs['kernel_size'] * kwargs['kernel_size']
+
         # Quantizer
         self.mix_weight = nn.ModuleList()
+        self.train_scale_param = kwargs.pop('train_scale_param', True)
         for bit in self.bits:
-            self.mix_weight.append(FQConvQuantization(num_bits=bit))
+            self.mix_weight.append(FQConvQuantization(
+                outplane, k_size, num_bits=bit, train_scale_param=self.train_scale_param))
 
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
 

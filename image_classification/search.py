@@ -5,17 +5,13 @@ import math
 import pathlib
 import random
 import shutil
-import sys
 import time
 import warnings
-
-sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
 import numpy as np
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
@@ -33,19 +29,19 @@ import models as models
 
 # Simply parse all models' names contained in models directory
 model_names = sorted(name for name in models.__dict__
-    if name.islower() and not name.startswith("__")
-    and callable(models.__dict__[name]))
+                     if name.islower() and not name.startswith("__")
+                     and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
-parser.add_argument('--arch-data-split', type=float, default=None, 
+parser.add_argument('--arch-data-split', type=float, default=None,
                     help='Split of the data to use for the update of alphas')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet8',
                     choices=model_names,
                     help='model architecture: ' +
-                        ' | '.join(model_names) +
-                        ' (default: resnet8)')
+                         ' | '.join(model_names) +
+                         ' (default: resnet8)')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('-d', '--dataset', default='None', type=str,
@@ -60,9 +56,11 @@ parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('--warmup', default=0, type=int,
                     help='number of warmup epochs'
-                        '(default: 0 -> no warmup)')
-parser.add_argument('--warmup-8bit', action='store_true', default=False,
+                         '(default: 0 -> no warmup)')
+parser.add_argument('--warmup-8bit', dest='warmup_8bit', action='store_true', default=False,
                     help='Use model pretrained on 8-bit as starting point')
+parser.add_argument('--no-warmup-8bit', dest='warmup_8bit', action='store_false',
+                    default=True, help='Don\'t use model pretrained on 8-bit as starting point')
 parser.add_argument('-b', '--batch-size', default=32, type=int,
                     metavar='N',
                     help='mini-batch size (default: 32), this is the total '
@@ -92,8 +90,8 @@ parser.add_argument('--regularization-target', '--rt', type=str,
                     help=f'regularization target: {*regularizer_targets,}')
 parser.add_argument('--gumbel-softmax', dest='gumbel_softmax', action='store_true', default=False,
                     help='use gumbel-softmax instead of plain softmax')
-parser.add_argument('--no-gumbel-softmax', dest='gumbel_softmax', action='store_false', default=True,
-                    help='use plain softmax instead of gumbel-softmax')
+parser.add_argument('--no-gumbel-softmax', dest='gumbel_softmax', action='store_false',
+                    default=True, help='use plain softmax instead of gumbel-softmax')
 parser.add_argument('--hard-gs', action='store_true', default=False, help='use hard gumbel-softmax')
 parser.add_argument('--temperature', default=5, type=float, help='Initial temperature value')
 parser.add_argument('--anneal-temp', action='store_true', default=False, help='anneal temperature')
@@ -133,18 +131,19 @@ parser.add_argument('--debug', dest='debug', action='store_true',
 
 best_acc1 = 0
 
+
 def main():
     args = parser.parse_args()
     print(args)
 
     if args.visualization:
         wandb.init(
-            project = args.project,
-            entity = 'matteorisso',
-            name = f'Search: {args.complexity_decay}',
-            notes = f'Multi-Precision Search with {args.complexity_decay} strength',
-            tags = ['Search', args.arch] + args.tags,
-            dir = args.data
+            project=args.project,
+            entity='matteorisso',
+            name=f'Search: {args.complexity_decay}',
+            notes=f'Multi-Precision Search with {args.complexity_decay} strength',
+            tags=['Search', args.arch] + args.tags,
+            dir=args.data
         )
         wandb.config.update(args)
         wandb.define_metric('Search_Train/Loss', summary='min')
@@ -161,7 +160,8 @@ def main():
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
-        cudnn.deterministic = True
+        cudnn.benchmark = False
+        torch.use_deterministic_algorithms(True)
         warnings.warn('You have chosen to seed training. '
                       'This will turn on the CUDNN deterministic setting, '
                       'which can slow down your training considerably! '
@@ -207,7 +207,7 @@ def main_worker(gpu, ngpus_per_node, args):
             args.rank = args.rank * ngpus_per_node + gpu
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size, rank=args.rank)
-    
+
     # Data loading code
     if 'imagenet' in args.dataset:
         num_classes = 1000
@@ -255,23 +255,13 @@ def main_worker(gpu, ngpus_per_node, args):
             transforms.RandomRotation(15),
             transforms.RandomAffine(degrees=0, translate=(0.1, 0.1)),
             transforms.RandomHorizontalFlip(0.5),
-            transforms.ToTensor(), 
+            transforms.ToTensor(),
         ])
 
         transform_test = transforms.Compose([
             transforms.ToTensor(),
-            #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
         ])
-
-        # Original data prep
-        #normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-        #                                 std=[0.229, 0.224, 0.225])
-        #transform = transforms.Compose([
-        #        #transforms.Resize((224,224)),
-        #        transforms.RandomHorizontalFlip(),
-        #        transforms.ToTensor(),
-        #        normalize,
-        #    ])
 
         if args.distributed:
             train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -281,39 +271,43 @@ def main_worker(gpu, ngpus_per_node, args):
         data_dir = args.data.parent.parent / 'data'
 
         train_set = torchvision.datasets.CIFAR10(root=data_dir, train=True,
-                                                download=True, transform=transform_train)
+                                                 download=True, transform=transform_train)
 
         test_set = torchvision.datasets.CIFAR10(root=data_dir, train=False,
-                                               download=True, transform=transform_test)
-        
+                                                download=True, transform=transform_test)
+
         # Split dataset into train and validation
         train_len = int(len(train_set) * 0.8)
         val_len = len(train_set) - train_len
         # Fix generator seed for reproducibility
         data_gen = torch.Generator().manual_seed(args.seed)
-        train_dataset, val_dataset = torch.utils.data.random_split(train_set, [train_len, val_len], generator=data_gen)
+        train_dataset, val_dataset = torch.utils.data.random_split(train_set, [train_len, val_len],
+                                                                   generator=data_gen)
 
         train_loader = torch.utils.data.DataLoader(
             train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
             num_workers=args.workers, pin_memory=True, sampler=train_sampler)
 
-        val_loader = torch.utils.data.DataLoader(val_dataset,
+        val_loader = torch.utils.data.DataLoader(
+            val_dataset,
             batch_size=args.batch_size, shuffle=True,
             num_workers=args.workers, pin_memory=True)
-        
+
         _idxs = np.load('perf_samples_idxs.npy')
         test_set = torch.utils.data.Subset(test_set, _idxs)
-        test_loader = torch.utils.data.DataLoader(test_set,
+        test_loader = torch.utils.data.DataLoader(
+            test_set,
             batch_size=args.batch_size, shuffle=False,
             num_workers=args.workers, pin_memory=True)
 
     # create model
     print("=> creating model '{}'".format(args.arch))
-    model = models.__dict__[args.arch](num_classes=num_classes, 
-                                        reg_target=args.regularization_target,
-                                        alpha_init=args.alpha_init,
-                                        gumbel=args.gumbel_softmax
-                                        )
+    model = models.__dict__[args.arch](
+        num_classes=num_classes,
+        reg_target=args.regularization_target,
+        alpha_init=args.alpha_init,
+        gumbel=args.gumbel_softmax
+        )
 
     if args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
@@ -348,19 +342,21 @@ def main_worker(gpu, ngpus_per_node, args):
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
 
     # group model/architecture parameters
-    params, alpha_params = [], []
+    params, alpha_params, q_params = [], [], []
     for name, param in model.named_parameters():
         if 'alpha' in name:
             alpha_params += [param]
+        elif ('clip_val' in name) or ('scale_param' in name):
+            q_params += [param]
         else:
             params += [param]
 
-    optimizer = torch.optim.Adam(params, args.lr,
-                          weight_decay=args.weight_decay)
+    optimizer = torch.optim.Adam(params, args.lr, weight_decay=args.weight_decay)
     arch_optimizer = torch.optim.SGD(alpha_params, args.lra, momentum=args.momentum,
-                               weight_decay=args.alpha_decay)
-    #arch_optimizer = torch.optim.Adam(alpha_params, args.lra, weight_decay=args.weight_decay)
-    
+                                     weight_decay=args.alpha_decay)
+    q_optimizer = torch.optim.SGD(q_params, 1e-5)
+    q_scheduler = torch.optim.lr_scheduler.StepLR(q_optimizer, 50)
+
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
@@ -384,8 +380,6 @@ def main_worker(gpu, ngpus_per_node, args):
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
-    cudnn.benchmark = True
-    
     if args.evaluate:
         validate(val_loader, model, criterion, args)
         return
@@ -404,13 +398,14 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # If warmup is enabled check if pretrained model exists
     if args.warmup != 0 and not args.warmup_8bit:
-        warmup_pretrained_checkpoint = args.data.parent / ('warmup_' + str(args.warmup) + '.pth.tar')
+        warmup_weights = ('warmup_' + str(args.warmup) + '.pth.tar')
+        warmup_pretrained_checkpoint = args.data.parent / warmup_weights
         if warmup_pretrained_checkpoint.exists():
             print(f"=> loading pretrained model '{warmup_pretrained_checkpoint}'")
             checkpoint = torch.load(warmup_pretrained_checkpoint)
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
-            #arch_optimizer.load_state_dict(checkpoint['arch_optimizer'])
+            # arch_optimizer.load_state_dict(checkpoint['arch_optimizer'])
         else:
             print(f"=> no pretrained model found at '{warmup_pretrained_checkpoint}'")
             print(f"=> warmup model for '{args.warmup}' epochs")
@@ -420,8 +415,9 @@ def main_worker(gpu, ngpus_per_node, args):
                     param.requires_grad = False
             # Warmup model
             warmup_best_epoch, warmup_best_acc1 = \
-                train(train_loader, val_loader, model, criterion, optimizer, arch_optimizer, scheduler, args, scope='Warmup')
-            
+                train(train_loader, val_loader, model, criterion, optimizer, arch_optimizer,
+                      q_optimizer, q_scheduler, args, scope='Warmup')
+
             print(f'Best Acc@1 {warmup_best_acc1} @ epoch {warmup_best_epoch}')
 
             # Unfreeze alpha parameters
@@ -435,161 +431,29 @@ def main_worker(gpu, ngpus_per_node, args):
     else:
         print('=> no warmup')
 
-    ###############################################
-    ### OLD CODE LET'S KEEP IT HERE FOR A WHILE ###
-    ###############################################
-    #best_epoch = args.start_epoch
-    #for epoch in range(args.start_epoch, args.epochs):
-    #    if args.distributed:
-    #        train_sampler.set_epoch(epoch)
-    #    #adjust_learning_rate(optimizer, arch_optimizer, epoch, args)
-
-    #    # Alternative scheduling from https://github.com/kuangliu/pytorch-cifar
-    #    scheduler.step()
-
-    #    # train for one epoch
-    #    train_epoch(train_loader, model, criterion, optimizer, arch_optimizer, epoch, args)
-
-    #    print('========= architecture =========')
-    #    if hasattr(model, 'module'):
-    #        best_arch, bitops, bita, bitw, mixbitops, mixbita, mixbitw = model.module.fetch_best_arch()
-    #    else:
-    #        best_arch, bitops, bita, bitw, mixbitops, mixbita, mixbitw = model.fetch_best_arch()
-    #    print('best model with bitops: {:.3f}M, bita: {:.3f}K, bitw: {:.3f}M'.format(
-    #        bitops, bita, bitw))
-    #    print('expected model with bitops: {:.3f}M, bita: {:.3f}K, bitw: {:.3f}M'.format(
-    #        mixbitops, mixbita, mixbitw))
-    #    for key, value in best_arch.items():
-    #        print('{}: {}'.format(key, value))
-
-    #    # evaluate on validation set
-    #    acc1 = validate(val_loader, model, criterion, epoch, args)
-
-    #    # remember best acc@1 and save checkpoint
-    #    is_best = acc1 > best_acc1
-    #    best_acc1 = max(acc1, best_acc1)
-    #    if is_best:
-    #        best_epoch = epoch
-
-    #    if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-    #            and args.rank % ngpus_per_node == 0):
-    #        save_checkpoint(args.data, {
-    #            'epoch': epoch + 1,
-    #            'arch': args.arch,
-    #            'state_dict': model.state_dict(),
-    #            'best_acc1': best_acc1,
-    #            'optimizer': optimizer.state_dict(),
-    #            'arch_optimizer': arch_optimizer.state_dict(),
-    #        }, is_best, epoch, args.step_epoch, args)
-
-    #    # Visualization
-    #    if args.visualization:
-    #        wandb.log({
-    #            'Epoch': epoch,
-    #            'bitops-best': bitops,
-    #            'bita-best': bita,
-    #            'bitw-best': bitw
-    #        })
-
-    #    # Debug: plot for each layer the fraction of selected precision for each precision
-    #    if args.debug:
-    #        discrete_arch = sample_arch(model.state_dict())
-    #        for layer, params in discrete_arch.items():
-    #            name = layer.split('.')[-1]
-    #            if name == 'alpha_weight':
-    #                try: 
-    #                    length = params.shape[0] # works with multi-precision
-    #                except:
-    #                    length = 1 # works with mixed-precision
-    #                if length > 1:
-    #                    ch = params.shape[0]
-    #                    #precisions = np.unique(params)
-    #                    #n = len(precisions)
-    #                    # Get explored precisions for weights from args.arch 
-    #                    # args.arch is a string of the form 'mixres18_w0248a248_multiprec'
-    #                    precisions = list(args.arch.split('_')[1].split('a')[0][1:])
-    #                    n = len(precisions)
-    #                    log_dict = {'Epoch': epoch}
-    #                    for prec, bit in enumerate(precisions):
-    #                        #bit = 2 ** prec if prec > 0 else 0
-    #                        layer_name = '.'.join(layer.split('.')[:-2])
-    #                        if layer_name == 'fc':
-    #                            log_dict[layer_name+'-'+bit+'bit'] = sum(params == prec) / ch
-    #                            #wandb.log({layer_name+'-'+str(bit)+'bit': sum(params+1 == prec) / ch}, 
-    #                            #    step=epoch)
-    #                        else:
-    #                            log_dict[layer_name+'-'+bit+'bit'] = sum(params == prec) / ch
-    #                            #wandb.log({layer_name+'-'+str(bit)+'bit': sum(params == prec) / ch},
-    #                            #    step=epoch)
-    #                        #wandb.log({
-    #                        #    'Epoch': epoch,
-    #                        #    '.'.join(layer.split('.')[:-2])+'-'+str(prec): sum(params == prec) / ch
-    #                        #})
-    #                    #wandb.log({'Epoch': epoch})
-    #                    wandb.log(log_dict)
-
-    #    # Debug: bar-plot with fraction of chosen precisions for each layer at each epoch
-    #    if args.debug:
-    #        discrete_arch = sample_arch(model.state_dict())
-    #        table_a, table_w = get_data_table(discrete_arch) 
-    #        wandb_table_a = wandb.Table(
-    #            data = table_a, 
-    #            columns = ['precision', 'fraction'])
-    #        wandb.log({'table_a': wandb_table_a})
-    #        if len(table_w[0]) > 2: # Multi-Precision
-    #            wandb_table_w = wandb.Table(
-    #                data = table_w, 
-    #                columns = ['layer', 'precision', 'fraction'])
-    #        else: # Mixed-Precision
-    #            wandb_table_w = wandb.Table(
-    #                data = table_w, 
-    #                columns = ['precision', 'fraction'])
-    #        wandb.log({'table_w': wandb_table_w})
-
     # Search
     best_epoch, best_acc1, best_acc1_test = \
-        train(train_loader, val_loader, test_loader, model, criterion, optimizer, arch_optimizer, args, 
-            scope='Search')
+        train(train_loader, val_loader, test_loader, model, criterion, optimizer, arch_optimizer,
+              q_optimizer, q_scheduler, args, scope='Search')
 
-    # Visualization: bar-plot with fraction of chosen precisions for each layer
-    if args.visualization and (not args.debug):
-        discrete_arch = sample_arch(model.state_dict())
-        table_a, table_w = get_data_table(discrete_arch) 
-        wandb_table_a = wandb.Table(
-            data = table_a, 
-            columns = ['precision', 'fraction'])
-        wandb.log({'table_a': wandb_table_a})
-        if len(table_w[0]) > 2: # Multi-Precision
-            wandb_table_w = wandb.Table(
-                data = table_w, 
-                columns = ['layer', 'precision', 'fraction'])
-        else: # Mixed-Precision
-            wandb_table_w = wandb.Table(
-                data = table_w, 
-                columns = ['precision', 'fraction'])
-        wandb.log({'table_w': wandb_table_w})
-    
-    best_acc1_val = best_acc1 
+    best_acc1_val = best_acc1
     print('Best Acc_val@1 {0} @ epoch {1}'.format(best_acc1_val, best_epoch))
 
     test_acc1 = best_acc1_test
     print('Test Acc_val@1 {0} @ epoch {1}'.format(test_acc1, best_epoch))
 
 
-def train(train_loader, val_loader, test_loader, model, criterion, optimizer, arch_optimizer, args, scope='Search'):
+def train(train_loader, val_loader, test_loader, model, criterion,
+          optimizer, arch_optimizer, q_optimizer, q_scheduler, args, scope='Search'):
     best_epoch = args.start_epoch
-    best_epoch_test = args.start_epoch
     best_acc1 = 0
     best_acc1_test = 0
     epoch_wout_improve = 0
     temp = args.temperature
 
     for epoch in range(args.start_epoch, args.epochs):
-        if args.distributed:
-            train_sampler.set_epoch(epoch)
-
-        # train for one epoch
-        #train_epoch(train_loader, model, criterion, optimizer, arch_optimizer, epoch, args, scope=scope)
+        # if args.distributed:
+        #    train_sampler.set_epoch(epoch)
 
         # If not None split data accordingly to args.arch_data_split
         # (1 - args.arch_data_split) is the fraction of training data used for normal weights
@@ -601,29 +465,35 @@ def train(train_loader, val_loader, test_loader, model, criterion, optimizer, ar
             len_data_w = len(data) - len_data_a
             data_w, data_a = torch.utils.data.random_split(data, [len_data_w, len_data_a])
             train_loader_w = torch.utils.data.DataLoader(
-                data_w, batch_size=args.batch_size, shuffle=True, 
+                data_w, batch_size=args.batch_size, shuffle=True,
                 num_workers=args.workers, pin_memory=True)
             train_loader_a = torch.utils.data.DataLoader(
-                data_a, batch_size=args.batch_size, shuffle=True, 
+                data_a, batch_size=args.batch_size, shuffle=True,
                 num_workers=args.workers, pin_memory=True)
-            # Freeze normal weights and train on alpha weights
+            # Freeze normal weights q_params and train on alpha weights
             model = freeze_weights(model, freeze=True)
-            train_epoch(train_loader_a, model, criterion, optimizer, arch_optimizer, epoch, args, temp, scope=scope)
+            train_epoch(train_loader_a, model, criterion, optimizer, arch_optimizer,
+                        q_optimizer, epoch, args, temp, scope=scope)
             model = freeze_weights(model, freeze=False)
-            # Freeze alpha weights and train on normal weights
+            # Freeze alpha weights and train on normal weights and q_params
             model = freeze_alpha(model, freeze=True)
-            train_epoch(train_loader_w, model, criterion, optimizer, arch_optimizer, epoch, args, temp, scope=scope)
+            train_epoch(train_loader_w, model, criterion, optimizer, arch_optimizer,
+                        q_optimizer, epoch, args, temp, scope=scope)
             model = freeze_alpha(model, freeze=False)
         else:
-            train_epoch(train_loader, model, criterion, optimizer, arch_optimizer, epoch, args, temp, scope=scope)
+            train_epoch(train_loader, model, criterion, optimizer, arch_optimizer,
+                        q_optimizer, epoch, args, temp, scope=scope)
 
         adjust_learning_rate(optimizer, epoch, args)
+        q_scheduler.step()
 
         print('========= architecture =========')
         if hasattr(model, 'module'):
-            best_arch, cycles, bita, bitw, mixbitops, mixbita, mixbitw = model.module.fetch_best_arch()
+            outs = model.module.fetch_best_arch()  # Return a tuple
+            best_arch, cycles, bita, bitw, mixbitops, mixbita, mixbitw = outs
         else:
-            best_arch, cycles, bita, bitw, mixbitops, mixbita, mixbitw = model.fetch_best_arch()
+            outs = model.fetch_best_arch()  # Return a tuple
+            best_arch, cycles, bita, bitw, mixbitops, mixbita, mixbitw = outs
         print('best model with cycles: {:.3f}M, bita: {:.3f}K, bitw: {:.3f}M'.format(
             cycles, bita, bitw))
         print('expected model with bitops: {:.3f}M, bita: {:.3f}K, bitw: {:.3f}M'.format(
@@ -635,7 +505,7 @@ def train(train_loader, val_loader, test_loader, model, criterion, optimizer, ar
         acc1 = validate(val_loader, model, criterion, epoch, args, temp, scope=scope)
         acc1_test = validate(test_loader, model, criterion, epoch, args, temp, scope=scope)
 
-        # Anneal temperature 
+        # Anneal temperature
         if args.anneal_temp and scope == 'Search':
             temp = anneal_temperature(temp)
 
@@ -653,7 +523,7 @@ def train(train_loader, val_loader, test_loader, model, criterion, optimizer, ar
             print(f'Epoch without improvement: {epoch_wout_improve}')
 
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                and args.rank % ngpus_per_node == 0):
+                                                    and args.rank % ngpus_per_node == 0):
             save_checkpoint(args.data, {
                 'epoch': epoch + 1,
                 'arch': args.arch,
@@ -673,79 +543,17 @@ def train(train_loader, val_loader, test_loader, model, criterion, optimizer, ar
                 'bitw-best': bitw
             })
 
-        # Debug: plot for each layer the fraction of selected precision for each precision
-        if args.debug and scope == 'Search':
-            discrete_arch = sample_arch(model.state_dict())
-            for layer, params in discrete_arch.items():
-                name = layer.split('.')[-1]
-                if name == 'alpha_weight':
-                    try: 
-                        length = params.shape[0] # works with multi-precision
-                    except:
-                        length = 1 # works with mixed-precision
-                    if length > 1:
-                        ch = params.shape[0]
-                        #precisions = np.unique(params)
-                        #n = len(precisions)
-                        # Get explored precisions for weights from args.arch 
-                        # args.arch is a string of the form 'mixres18_w0248a248_multiprec'
-                        precisions = list(args.arch.split('_')[1].split('a')[0][1:])
-                        n = len(precisions)
-                        log_dict = {'Epoch': epoch}
-                        for prec, bit in enumerate(precisions):
-                            #bit = 2 ** prec if prec > 0 else 0
-                            layer_name = '.'.join(layer.split('.')[:-2])
-                            if layer_name == 'fc':
-                                log_dict[layer_name+'-'+bit+'bit'] = sum(params == prec) / ch
-                                #wandb.log({layer_name+'-'+str(bit)+'bit': sum(params+1 == prec) / ch}, 
-                                #    step=epoch)
-                            else:
-                                log_dict[layer_name+'-'+bit+'bit'] = sum(params == prec) / ch
-                                #wandb.log({layer_name+'-'+str(bit)+'bit': sum(params == prec) / ch},
-                                #    step=epoch)
-                            #wandb.log({
-                            #    'Epoch': epoch,
-                            #    '.'.join(layer.split('.')[:-2])+'-'+str(prec): sum(params == prec) / ch
-                            #})
-                        #wandb.log({'Epoch': epoch})
-                        wandb.log(log_dict)
-
-        # Debug: plot for a single layer evolution of alphas and softmax
-        if args.debug and scope == 'Search':
-            alpha = model.state_dict()['model.bb_1.conv0.mix_weight.alpha_weight'].clone().detach().cpu()
-            sw = F.softmax(alpha/temp, dim=0).clone().detach().cpu().numpy()
-            alpha = alpha.numpy()
-            log_dict = {'Epoch': epoch}
-            for ch in range(alpha.shape[1]):
-                for prec in range(alpha.shape[0]):
-                    log_dict['alpha/ch'+str(ch)+'-prec'+str(prec)] = alpha[prec, ch]
-                    log_dict['softmax/ch'+str(ch)+'-prec'+str(prec)] = sw[prec, ch]
-            wandb.log(log_dict)
-    
-        # Debug: bar-plot with fraction of chosen precisions for each layer at each epoch
-        if args.debug and scope == 'Search':
-            discrete_arch = sample_arch(model.state_dict())
-            table_a, table_w = get_data_table(discrete_arch) 
-            wandb_table_a = wandb.Table(
-                data = table_a, 
-                columns = ['precision', 'fraction'])
-            wandb.log({'table_a': wandb_table_a})
-            if len(table_w[0]) > 2: # Multi-Precision
-                wandb_table_w = wandb.Table(
-                    data = table_w, 
-                    columns = ['layer', 'precision', 'fraction'])
-            else: # Mixed-Precision
-                wandb_table_w = wandb.Table(
-                    data = table_w, 
-                    columns = ['precision', 'fraction'])
-            wandb.log({'table_w': wandb_table_w})
         # Early-Stop
         if epoch_wout_improve >= args.patience:
             print(f'Early stopping at epoch {epoch}')
             break
+
     return best_epoch, best_acc1, best_acc1_test
 
-def train_epoch(train_loader, model, criterion, optimizer, arch_optimizer, epoch, args, temp, scope='Search'):
+
+def train_epoch(train_loader, model, criterion,
+                optimizer, arch_optimizer, q_optimizer,
+                epoch, args, temp, scope='Search'):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -774,11 +582,7 @@ def train_epoch(train_loader, model, criterion, optimizer, arch_optimizer, epoch
         target = target.cuda(args.gpu, non_blocking=True)
 
         # compute output
-        if epoch == 21 and i == 365:
-            import pdb; pdb.set_trace()
         output = model(images, temp, args.hard_gs)
-        if sum(torch.isnan(output.flatten())) != 0:
-            import pdb; pdb.set_trace()
         task_loss = criterion(output, target)
 
         # measure accuracy and record loss
@@ -788,17 +592,15 @@ def train_epoch(train_loader, model, criterion, optimizer, arch_optimizer, epoch
         top5.update(acc5[0], images.size(0))
         # complexity penalty
         if args.complexity_decay != 0 and scope == 'Search':
-        # if scope == 'Search':
             if hasattr(model, 'module'):
                 loss_complexity = args.complexity_decay * model.module.complexity_loss()
             else:
                 loss_complexity = args.complexity_decay * model.complexity_loss()
-            loss = task_loss + loss_complexity
         else:
             loss_complexity = torch.tensor(0.)
         complexity_losses.update(loss_complexity.item(), images.size(0))
-        
-        #import pdb; pdb.set_trace()
+        loss = task_loss + loss_complexity
+
         # compute gradient and do SGD step
         optimizer.zero_grad()
         arch_optimizer.zero_grad()
@@ -812,24 +614,18 @@ def train_epoch(train_loader, model, criterion, optimizer, arch_optimizer, epoch
 
         if i % args.print_freq == 0:
             progress.display(i)
-            #for m in model.modules():
-            #    if isinstance(m, model.conv_func):
-            #        if not m.fc:
-            #            print("{}".format(m.mix_weight.alpha_weight))
-            #        if sum(m.mix_weight.alpha_weight>100)>=1:
-            #        import pdb; pdb.set_trace()
-            #        break
-    
+
     # Visualization
     if args.visualization:
         wandb.log({
                 scope + "_Epoch": epoch,
-                scope + "_Train/Loss": losses.avg, 
-                scope + "_Train/Complexity_Loss": loss_complexity, 
+                scope + "_Train/Loss": losses.avg,
+                scope + "_Train/Complexity_Loss": loss_complexity,
                 scope + "_Train/Acc": top1.avg,
                 scope + "_Train/lr": curr_lr,
                 scope + "_Train/lra": curr_lra
             })
+
 
 def validate(val_loader, model, criterion, epoch, args, temp, scope='Search'):
     batch_time = AverageMeter('Time', ':6.3f')
@@ -870,19 +666,20 @@ def validate(val_loader, model, criterion, epoch, args, temp, scope='Search'):
 
         # TODO: this should also be done with the ProgressMeter
         print(f' * Acc@1 {top1.avg} Acc@5 {top5.avg}')
-    
+
     # Visualization
     if args.visualization:
         wandb.log({
                 scope + "_Epoch": epoch,
-                scope + "_Test/Loss": losses.avg, 
+                scope + "_Test/Loss": losses.avg,
                 scope + "_Test/Acc": top1.avg
             })
 
     return top1.avg
 
 
-def save_checkpoint(root, state, is_best, epoch, step_epoch, args, filename='arch_checkpoint.pth.tar', scope='Search'):
+def save_checkpoint(root, state, is_best, epoch, step_epoch, args,
+                    filename='arch_checkpoint.pth.tar', scope='Search'):
     if scope == 'Warmup':
         torch.save(state, root.parent / ('warmup_' + str(args.warmup) + '.pth.tar'))
     elif scope == 'Search':
@@ -893,7 +690,7 @@ def save_checkpoint(root, state, is_best, epoch, step_epoch, args, filename='arc
         if is_best:
             shutil.copyfile(root / filename, root / 'arch_model_best.pth.tar')
         if (epoch + 1) % step_epoch == 0:
-            shutil.copyfile(root / filename, root / 'arch_checkpoint_ep{}.pth.tar'.format(epoch + 1))
+            shutil.copyfile(root / filename, root / f'arch_checkpoint_ep{epoch+1}.pth.tar')
 
 
 class AverageMeter(object):
@@ -944,10 +741,11 @@ def adjust_learning_rate(optimizer, epoch, args):
     for opt in optimizer.param_groups:
         opt['lr'] = lrate
 
+
 def anneal_temperature(temperature):
     # FbNetV2-like annealing
     return temperature * math.exp(-0.045)
-    #return temperature * 1
+
 
 def accuracy(output, target, topk=(1,)):
     """Computes the accuracy over the k top predictions for the specified values of k"""
@@ -965,6 +763,7 @@ def accuracy(output, target, topk=(1,)):
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
+
 # MR
 def freeze_alpha(model, freeze=True):
     for name, param in model.named_parameters():
@@ -972,46 +771,14 @@ def freeze_alpha(model, freeze=True):
             param.requires_grad = not freeze
     return model
 
+
 # MR
 def freeze_weights(model, freeze=True):
     for name, param in model.named_parameters():
-        if not 'alpha' in name:
+        if 'alpha' not in name:
             param.requires_grad = not freeze
     return model
 
-# MR
-def get_data_table(arch):
-    table_a = list()
-    a_buffer = list()
-    table_w = list()
-    w_buffer = list()
-    for layer, params in arch.items():
-        name = layer.split('.')[-1]
-        if name == 'alpha_activ':
-            a_buffer.append(params)
-        elif name == 'alpha_weight':
-            try: 
-                length = params.shape[0] # works with multi-precision
-            except:
-                length = 1 # works with mixed-precision
-            if length > 1:
-                ch = params.shape[0]
-                precisions = np.unique(params)
-                for prec in precisions:
-                    frac = sum(params == prec) / ch
-                    table_w.append(['.'.join(layer.split('.')[:-2]), prec, frac])
-            else:
-                w_buffer.append(params)
-    unique_prec_a = set(a_buffer)
-    for prec in unique_prec_a:
-        frac = sum([1 for val in a_buffer if val == prec]) / len(a_buffer)
-        table_a.append([prec, frac])
-    if len(w_buffer) > 0:
-        unique_prec_w = set(w_buffer)
-        for prec in unique_prec_w:
-            frac = sum([1 for val in w_buffer if val == prec]) / len(w_buffer)
-            table_w.append(['', prec, frac])
-    return table_a, table_w
 
 # MR
 def sample_arch(state_dict):
@@ -1026,6 +793,7 @@ def sample_arch(state_dict):
             alpha = params.cpu().numpy()
             arch[full_name] = alpha.argmax(axis=0)
     return arch
+
 
 def preprocess_dict(state_dict):
     new_dict = copy.deepcopy(state_dict)

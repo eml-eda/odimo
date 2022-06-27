@@ -1,3 +1,8 @@
+# DISCLAIMER:
+# The integration of different HW models is currently not impemented,
+# the proposed MPIC model is only an example but the current implementation
+# directly support only `diana`
+
 MPIC = {
     2: {2: 6.5, 4: 4., 8: 2.2},
     4: {2: 3.9, 4: 3.5, 8: 2.1},

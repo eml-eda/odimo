@@ -5,37 +5,39 @@ from . import hw_models as hw
 
 # DJP
 __all__ = [
-    'mixres8_diana'
+    'mixres8_diana5', 'mixres8_diana10', 'mixres8_diana100',
 ]
 
 
-def conv3x3(conv_func, hw_model, in_planes, out_planes, stride=1, groups = 1, fix_qtz=False, **kwargs):
+def conv3x3(conv_func, hw_model, in_planes, out_planes,
+            stride=1, groups=1, fix_qtz=False, **kwargs):
     "3x3 convolution with padding"
     if conv_func != nn.Conv2d:
-        return conv_func(hw_model, in_planes, out_planes, kernel_size=3, groups=groups, stride=stride,
-                     padding=1, bias=False, fix_qtz=fix_qtz, **kwargs)
+        return conv_func(hw_model, in_planes, out_planes,
+                         kernel_size=3, groups=groups, stride=stride,
+                         padding=1, bias=False, fix_qtz=fix_qtz, **kwargs)
     else:
-        return conv_func(in_planes, out_planes, kernel_size=3, groups=groups, stride=stride,
-                     padding=1, bias=False, **kwargs)
+        return conv_func(in_planes, out_planes,
+                         kernel_size=3, groups=groups, stride=stride,
+                         padding=1, bias=False, **kwargs)
+
 
 # MR
-def fc(conv_func, hw_model, in_planes, out_planes, stride=1, groups = 1, search_fc=None, **kwargs):
+def fc(conv_func, hw_model, in_planes, out_planes, stride=1, groups=1, search_fc=None, **kwargs):
     "fc mapped to conv"
     return conv_func(hw_model, in_planes, out_planes, kernel_size=1, groups=groups, stride=stride,
                      padding=0, bias=True, fc=search_fc, **kwargs)
+
 
 # MR
 class Backbone(nn.Module):
     def __init__(self, conv_func, hw_model, input_size, bnaff, **kwargs):
         super().__init__()
-        self.bb_1 = BasicBlockGumbel(conv_func, hw_model, 16, 16, stride=1,
-            bnaff=True, **kwargs)
-        self.bb_2 = BasicBlockGumbel(conv_func, hw_model, 16, 32, stride=2,
-            bnaff=True, **kwargs)
-        self.bb_3 = BasicBlockGumbel(conv_func, hw_model, 32, 64, stride=2,
-            bnaff=True, **kwargs)
+        self.bb_1 = BasicBlockGumbel(conv_func, hw_model, 16, 16, stride=1, **kwargs)
+        self.bb_2 = BasicBlockGumbel(conv_func, hw_model, 16, 32, stride=2, **kwargs)
+        self.bb_3 = BasicBlockGumbel(conv_func, hw_model, 32, 64, stride=2, **kwargs)
         self.pool = nn.AvgPool2d(kernel_size=8)
-    
+
     def forward(self, x, temp, is_hard):
         x = self.bb_1(x, temp, is_hard)
         x = self.bb_2(x, temp, is_hard)
@@ -45,25 +47,22 @@ class Backbone(nn.Module):
 
 
 class BasicBlockGumbel(nn.Module):
-    expansion = 1
-
-    def __init__(self, conv_func, hw_model, inplanes, planes, stride=1,
-                downsample=None, bnaff=True, **kwargs):
+    def __init__(self, conv_func, hw_model, inplanes, planes,
+                 stride=1, downsample=None, bnaff=True, **kwargs):
         super().__init__()
-        #self.bn0 = nn.BatchNorm2d(inplanes, affine=bnaff)
         self.conv1 = conv3x3(conv_func, hw_model, inplanes, planes, stride, **kwargs)
         self.bn1 = nn.BatchNorm2d(planes, affine=bnaff)
         self.conv2 = conv3x3(conv_func, hw_model, planes, planes, **kwargs)
         self.bn2 = nn.BatchNorm2d(planes)
         if stride != 1 or inplanes != planes:
-            self.downsample = conv_func(hw_model, inplanes, planes, kernel_size=1,
-                stride=stride,  groups=1, bias=False, **kwargs)
+            self.downsample = conv_func(hw_model, inplanes, planes,
+                                        kernel_size=1, stride=stride, groups=1, bias=False,
+                                        **kwargs)
             self.bn_ds = nn.BatchNorm2d(planes)
         else:
             self.downsample = None
 
     def forward(self, x, temp, is_hard):
-        #out = self.bn0(x)
         if self.downsample is not None:
             residual = x
         else:
@@ -80,11 +79,12 @@ class BasicBlockGumbel(nn.Module):
 
         out += residual
 
-        return out 
+        return out
+
 
 class TinyMLResNet(nn.Module):
-    def __init__(self, conv_func, hw_model, search_fc=None, input_size=32, 
-        num_classes=10, bnaff=True, **kwargs):
+    def __init__(self, conv_func, hw_model,
+                 search_fc=None, input_size=32, num_classes=10, bnaff=True, **kwargs):
         if 'abits' in kwargs:
             print('abits: {}'.format(kwargs['abits']))
         if 'wbits' in kwargs:
@@ -100,7 +100,7 @@ class TinyMLResNet(nn.Module):
             self.search_fc = False
         super().__init__()
         self.gumbel = kwargs.get('gumbel', False)
-        
+
         # Model
         self.conv1 = conv3x3(conv_func, hw_model, 3, 16, stride=1, groups=1, **kwargs)
         self.bn1 = nn.BatchNorm2d(16)
@@ -147,7 +147,8 @@ class TinyMLResNet(nn.Module):
         best_arch = None
         for m in self.modules():
             if isinstance(m, self.conv_func):
-                layer_arch, bitops, bita, bitw, mixbitops, mixbita, mixbitw = m.fetch_best_arch(layer_idx)
+                outs = m.fetch_best_arch(layer_idx)  # Return tuple
+                layer_arch, bitops, bita, bitw, mixbitops, mixbita, mixbitw = outs
                 if best_arch is None:
                     best_arch = layer_arch
                 else:
@@ -167,7 +168,27 @@ class TinyMLResNet(nn.Module):
 
 
 # MR
-def mixres8_diana(**kwargs):
+def mixres8_diana5(**kwargs):
     # NB: 2 bits is equivalent for ternary weights!!
-    return TinyMLResNet(qm.MultiPrecActivConv2d, hw.diana(analog_speedup=5.), search_fc='multi', wbits=[2, 8], abits=[8],
-                share_weight=True, **kwargs)
+    return TinyMLResNet(
+        qm.MultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+        search_fc='multi', wbits=[2, 8], abits=[8],
+        share_weight=True, **kwargs)
+
+
+# MR
+def mixres8_diana10(**kwargs):
+    # NB: 2 bits is equivalent for ternary weights!!
+    return TinyMLResNet(
+        qm.MultiPrecActivConv2d, hw.diana(analog_speedup=10.),
+        search_fc='multi', wbits=[2, 8], abits=[8],
+        share_weight=True, **kwargs)
+
+
+# MR
+def mixres8_diana100(**kwargs):
+    # NB: 2 bits is equivalent for ternary weights!!
+    return TinyMLResNet(
+        qm.MultiPrecActivConv2d, hw.diana(analog_speedup=100.),
+        search_fc='multi', wbits=[2, 8], abits=[8],
+        share_weight=True, **kwargs)

@@ -32,7 +32,7 @@ if [[ "$4" == "search" ]]; then
     python3 search.py ${path}/${arch}/model_${strength} -a mix${arch} \
         -d cifar --arch-data-split ${split} \
         --epochs 500 --step-epoch 50 -b 32 \
-        --warmup ${warmup} --warmup-8bit --patience 100 \
+        --warmup ${warmup} --no-warmup-8bit --patience 100 \
         --lr 0.001 --lra 0.01 --wd 1e-4 \
         --ai same --cd ${strength} --rt weights \
         --seed 42 --gpu 0 \
