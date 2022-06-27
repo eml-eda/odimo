@@ -3,7 +3,6 @@ import os
 import pathlib
 import random
 import shutil
-import sys
 import time
 import warnings
 
@@ -23,7 +22,6 @@ import torchvision
 
 import wandb
 
-# sys.path.insert(1, os.path.join(sys.path[0], '..'))
 import models as models
 
 model_names = sorted(name for name in models.__dict__
@@ -327,8 +325,8 @@ def main_worker(gpu, ngpus_per_node, args):
         params, args.lr, weight_decay=args.weight_decay)
 
     if q_params:
-        q_optimizer = torch.optim.SGD(q_params, 1e-5)
-        q_scheduler = torch.optim.lr_scheduler.StepLR(q_optimizer, 50)
+        q_optimizer = torch.optim.SGD(q_params, 1e-4)
+        q_scheduler = torch.optim.lr_scheduler.StepLR(q_optimizer, 100)
     else:
         q_optimizer = None
         q_scheduler = None
