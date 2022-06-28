@@ -43,7 +43,7 @@ fi
 if [[ "$5" == "ft" ]]; then
     echo Fine-Tune
     python3 main.py ${path}/${arch}/model_${strength} -a quant${arch} \
-        -d cifar --epochs 500 --step-epoch 50 -b 32 --patience 100 \
+        -d cifar --epochs 500 --step-epoch 50 -b 32 --patience 500 \
         --lr 0.001 --wd 1e-4 \
         --seed 42 --gpu 0 \
         --ac ${arch}/model_${strength}/arch_model_best.pth.tar -ft \
