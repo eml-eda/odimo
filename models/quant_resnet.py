@@ -8,7 +8,7 @@ from . import hw_models as hw
 # MR
 __all__ = [
     'quantres8_fp',
-    'quantres8_w8a8', 'quantres8_w5a8', 'quantres8_w2a8',
+    'quantres8_w8a8', 'quantres8_w5a8', 'quantres8_w2a8', 'quantres8_w2a8_true',
     'quantres8_diana',
     'quantres8_diana5', 'quantres8_diana10', 'quantres8_diana100',
 ]
@@ -17,14 +17,14 @@ __all__ = [
 # MR
 class Backbone(nn.Module):
 
-    def __init__(self, conv_func, input_size, bnaff, abits, wbits, **kwargs):
+    def __init__(self, conv_func, input_size, bn, abits, wbits, **kwargs):
         super().__init__()
         self.bb_1 = BasicBlock(conv_func, 16, 16, wbits[:2], abits[:2], stride=1,
-                               bnaff=True, **kwargs)
+                               bn=bn, **kwargs)
         self.bb_2 = BasicBlock(conv_func, 16, 32, wbits[2:5], abits[2:5], stride=2,
-                               bnaff=True, **kwargs)
+                               bn=bn, **kwargs)
         self.bb_3 = BasicBlock(conv_func, 32, 64, wbits[5:7], abits[5:7], stride=2,
-                               bnaff=True, **kwargs)
+                               bn=bn, **kwargs)
         self.pool = nn.AvgPool2d(kernel_size=8)
 
     def forward(self, x):
@@ -37,19 +37,23 @@ class Backbone(nn.Module):
 
 class BasicBlock(nn.Module):
     def __init__(self, conv_func, inplanes, planes, archws, archas, stride=1,
-                 downsample=None, bnaff=True, **kwargs):
+                 downsample=None, bn=True, **kwargs):
+        self.bn = bn
         super().__init__()
         self.conv1 = conv_func(inplanes, planes, archws[0], archas[0], kernel_size=3, stride=stride,
                                groups=1, padding=1, bias=False, **kwargs)
-        self.bn1 = nn.BatchNorm2d(planes, affine=bnaff)
+        if bn:
+            self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = conv_func(planes, planes, archws[1], archas[1], kernel_size=3, stride=1,
                                groups=1, padding=1, bias=False, **kwargs)
-        self.bn2 = nn.BatchNorm2d(planes)
+        if bn:
+            self.bn2 = nn.BatchNorm2d(planes)
         if stride != 1 or inplanes != planes:
             self.downsample = conv_func(
                 inplanes, planes, archws[-1], archas[-1], kernel_size=1,
                 groups=1, stride=stride, bias=False, **kwargs)
-            self.bn_ds = nn.BatchNorm2d(planes)
+            if bn:
+                self.bn_ds = nn.BatchNorm2d(planes)
         else:
             self.downsample = None
 
@@ -60,13 +64,16 @@ class BasicBlock(nn.Module):
             residual = x
 
         out = self.conv1(x)
-        out = self.bn1(out)
+        if self.bn:
+            out = self.bn1(out)
         out = self.conv2(out)
-        out = self.bn2(out)
+        if self.bn:
+            out = self.bn2(out)
 
         if self.downsample is not None:
             residual = self.downsample(residual)
-            residual = self.bn_ds(residual)
+            if self.bn:
+                residual = self.bn_ds(residual)
 
         out += residual
 
@@ -76,7 +83,7 @@ class BasicBlock(nn.Module):
 class TinyMLResNet(nn.Module):
 
     def __init__(self, conv_func, hw_model, archws, archas, qtz_fc=None,
-                 input_size=32, num_classes=10, bnaff=True, **kwargs):
+                 input_size=32, num_classes=10, bn=True, **kwargs):
         print('archas: {}'.format(archas))
         print('archws: {}'.format(archws))
 
@@ -88,15 +95,17 @@ class TinyMLResNet(nn.Module):
             self.qtz_fc = qtz_fc
         else:
             self.qtz_fc = False
+        self.bn = bn
         super().__init__()
 
         # Model
         self.conv1 = conv_func(3, 16, abits=archas[0], wbits=archws[0],
                                kernel_size=3, stride=1, bias=False, padding=1,
                                groups=1, first_layer=False, **kwargs)
-        self.bn1 = nn.BatchNorm2d(16, affine=bnaff)
+        if bn:
+            self.bn1 = nn.BatchNorm2d(16)
         self.backbone = Backbone(
-            conv_func, input_size, bnaff, abits=archas[1:-1], wbits=archws[1:-1], **kwargs)
+            conv_func, input_size, bn, abits=archas[1:-1], wbits=archws[1:-1], **kwargs)
         self.fc = conv_func(
             64, num_classes, abits=archas[-1], wbits=archws[-1],
             kernel_size=1, stride=1, groups=1, bias=True, fc=self.qtz_fc, **kwargs)
@@ -114,7 +123,8 @@ class TinyMLResNet(nn.Module):
 
     def forward(self, x):
         x = self.conv1(x)
-        x = self.bn1(x)
+        if self.bn:
+            x = self.bn1(x)
 
         x = self.backbone(x)
 
@@ -290,6 +300,28 @@ def quantres8_w2a8(arch_cfg_path, **kwargs):
     # Build Model
     model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
                          archws, archas, qtz_fc='multi', **kwargs)
+    # state_dict = torch.load(arch_cfg_path)['state_dict']
+    # model.load_state_dict(state_dict)
+    return model
+
+
+def quantres8_w2a8_true(arch_cfg_path, **kwargs):
+    archas, archws = [[8]] * 10, [[2]] * 10
+
+    # Build Model
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+                         archws, archas, qtz_fc='multi', **kwargs)
+    # state_dict = torch.load(arch_cfg_path)['state_dict']
+    # model.load_state_dict(state_dict)
+    return model
+
+
+def quantres8_w2a8_true_nobn(arch_cfg_path, **kwargs):
+    archas, archws = [[8]] * 10, [[2]] * 10
+
+    # Build Model
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+                         archws, archas, qtz_fc='multi', bn=False, **kwargs)
     # state_dict = torch.load(arch_cfg_path)['state_dict']
     # model.load_state_dict(state_dict)
     return model
