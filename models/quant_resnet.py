@@ -8,7 +8,10 @@ from . import hw_models as hw
 # MR
 __all__ = [
     'quantres8_fp',
-    'quantres8_w8a8', 'quantres8_w5a8', 'quantres8_w2a8', 'quantres8_w2a8_true',
+    'quantres8_w8a8', 'quantres8_w8a8_nobn',
+    'quantres8_w5a8',
+    'quantres8_w2a8', 'quantres8_w2a8_nobn',
+    'quantres8_w2a8_true', 'quantres8_w2a8_true_nobn',
     'quantres8_diana',
     'quantres8_diana5', 'quantres8_diana10', 'quantres8_diana100',
 ]
@@ -277,6 +280,13 @@ def quantres8_w8a8(arch_cfg_path, **kwargs):
     return model
 
 
+def quantres8_w8a8_nobn(arch_cfg_path, **kwargs):
+    archas, archws = [[8]] * 10, [[8]] * 10
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+                         archws, archas, qtz_fc='multi', bn=False, **kwargs)
+    return model
+
+
 def quantres8_w5a8(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 10, [[5]] * 10
     # Set first and last layer weights precision to 8bit
@@ -300,6 +310,20 @@ def quantres8_w2a8(arch_cfg_path, **kwargs):
     # Build Model
     model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
                          archws, archas, qtz_fc='multi', **kwargs)
+    # state_dict = torch.load(arch_cfg_path)['state_dict']
+    # model.load_state_dict(state_dict)
+    return model
+
+
+def quantres8_w2a8_nobn(arch_cfg_path, **kwargs):
+    archas, archws = [[8]] * 10, [[2]] * 10
+    # Set first and last layer weights precision to 8bit
+    archws[0] = [8]
+    archws[-1] = [8]
+
+    # Build Model
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+                         archws, archas, qtz_fc='multi', bn=False, **kwargs)
     # state_dict = torch.load(arch_cfg_path)['state_dict']
     # model.load_state_dict(state_dict)
     return model
