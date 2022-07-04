@@ -1,13 +1,17 @@
 import copy
+import math
+from pathlib import Path
+
 import torch
 import torch.nn as nn
-import math
-from . import quant_module as qm
-from . import hw_models as hw
+
+from utils import fold_bn
+import quant_module as qm
+import hw_models as hw
 
 # MR
 __all__ = [
-    'quantres8_fp',
+    'quantres8_fp', 'quantres8_fp_foldbn',
     'quantres8_w8a8', 'quantres8_w8a8_nobn',
     'quantres8_w5a8',
     'quantres8_w2a8', 'quantres8_w2a8_nobn',
@@ -271,6 +275,22 @@ def quantres8_fp(arch_cfg_path, **kwargs):
     model = TinyMLResNet(qm.FpConv2d, hw.diana(analog_speedup=5.),
                          archws, archas, qtz_fc='multi', **kwargs)
     return model
+
+
+def quantres8_fp_foldbn(arch_cfg_path, **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        raise FileNotFoundError
+
+    archas, archws = [[8]] * 10, [[8]] * 10
+    model = TinyMLResNet(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                         archws, archas, qtz_fc='multi', **kwargs)
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    model.load_state_dict(fp_state_dict)
+
+    folded_model = fold_bn(model)
+
+    return folded_model
 
 
 def quantres8_w8a8(arch_cfg_path, **kwargs):
