@@ -32,11 +32,11 @@
             "request": "launch",
             "program": "main.py",
             "console": "integratedTerminal",
-            "justMyCode": true,
+            "justMyCode": false,
             "cwd": "${workspaceFolder}/image_classification",
             "args": [
                 "res8_fp/model_debug",
-                "-a", "quantres8_fp",
+                "-a", "quantres8_fp_foldbn",
                 "-d", "cifar",
                 "--epochs", "500",
                 "--step-epoch", "50",

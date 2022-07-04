@@ -278,7 +278,8 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> loading architecture config from '{}'".format(args.arch_cfg))
         else:
             print("=> no architecture found at '{}'".format(args.arch_cfg))
-    model = models.__dict__[args.arch](
+    model_fn = models.__dict__[args.arch]
+    model = model_fn(
         args.arch_cfg, num_classes=num_classes, fine_tune=args.fine_tune)
 
     if args.distributed:

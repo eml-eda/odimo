@@ -139,6 +139,16 @@ def clamp(x, min, max, inplace=False):
     return torch.clamp(x, min, max)
 
 
+@torch.fx.wrap
+def memory_size(in_shape):
+    return torch.tensor(in_shape[1] * in_shape[2] * in_shape[3] * 1e-3, dtype=torch.float)
+
+
+@torch.fx.wrap
+def size_product(filter_size, in_shape):
+    return torch.tensor(filter_size * in_shape[-1] * in_shape[-2], dtype=torch.float)
+
+
 # DJP
 class LearnedClippedLinearQuantizeSTE(torch.autograd.Function):
     @staticmethod
@@ -314,8 +324,8 @@ class QuantMultiPrecActivConv2d(nn.Module):
 
     def forward(self, input):
         in_shape = input.shape
-        tmp = torch.tensor(in_shape[1] * in_shape[2] * in_shape[3] * 1e-3, dtype=torch.float)
-        self.memory_size.copy_(tmp)
+        # tmp = torch.tensor(in_shape[1] * in_shape[2] * in_shape[3] * 1e-3, dtype=torch.float)
+        self.memory_size.copy_(self.memory_size(in_shape))
         tmp = torch.tensor(self.filter_size * in_shape[-1] * in_shape[-2], dtype=torch.float)
         self.size_product.copy_(tmp)
         if not self.first_layer:
@@ -324,6 +334,9 @@ class QuantMultiPrecActivConv2d(nn.Module):
             out = _channel_asym_min_max_quantize.apply(input, 8)
         out = self.mix_weight(out)
         return out
+
+    def memory_size(self, in_shape):
+        return torch.tensor(in_shape[1] * in_shape[2] * in_shape[3] * 1e-3, dtype=torch.float)
 
 
 # MR
@@ -473,10 +486,10 @@ class FpConv2d(nn.Module):
 
     def forward(self, input):
         in_shape = input.shape
-        tmp = torch.tensor(in_shape[1] * in_shape[2] * in_shape[3] * 1e-3, dtype=torch.float)
-        self.memory_size.copy_(tmp)
-        tmp = torch.tensor(self.filter_size * in_shape[-1] * in_shape[-2], dtype=torch.float)
-        self.size_product.copy_(tmp)
+        # tmp = torch.tensor(in_shape[1] * in_shape[2] * in_shape[3] * 1e-3, dtype=torch.float)
+        self.memory_size.copy_(memory_size(in_shape))
+        # tmp = torch.tensor(self.filter_size * in_shape[-1] * in_shape[-2], dtype=torch.float)
+        self.size_product.copy_(size_product(self.filter_size, in_shape))
         if not self.first_layer:
             out = self.conv(self.relu(input))
         else:

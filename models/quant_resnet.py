@@ -5,9 +5,9 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
-from utils import fold_bn
-import quant_module as qm
-import hw_models as hw
+from . import utils
+from . import quant_module as qm
+from . import hw_models as hw
 
 # MR
 __all__ = [
@@ -288,7 +288,9 @@ def quantres8_fp_foldbn(arch_cfg_path, **kwargs):
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     model.load_state_dict(fp_state_dict)
 
-    folded_model = fold_bn(model)
+    model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(model)
+    folded_model.train()  # Put back the model in train mode
 
     return folded_model
 
