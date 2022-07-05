@@ -325,18 +325,15 @@ class QuantMultiPrecActivConv2d(nn.Module):
     def forward(self, input):
         in_shape = input.shape
         # tmp = torch.tensor(in_shape[1] * in_shape[2] * in_shape[3] * 1e-3, dtype=torch.float)
-        self.memory_size.copy_(self.memory_size(in_shape))
-        tmp = torch.tensor(self.filter_size * in_shape[-1] * in_shape[-2], dtype=torch.float)
-        self.size_product.copy_(tmp)
+        self.memory_size.copy_(memory_size(in_shape))
+        # tmp = torch.tensor(self.filter_size * in_shape[-1] * in_shape[-2], dtype=torch.float)
+        self.size_product.copy_(size_product(self.filter_size, in_shape))
         if not self.first_layer:
             out = self.mix_activ(input)
         else:
             out = _channel_asym_min_max_quantize.apply(input, 8)
         out = self.mix_weight(out)
         return out
-
-    def memory_size(self, in_shape):
-        return torch.tensor(in_shape[1] * in_shape[2] * in_shape[3] * 1e-3, dtype=torch.float)
 
 
 # MR

@@ -15,6 +15,7 @@ __all__ = [
     'quantres8_w8a8', 'quantres8_w8a8_nobn',
     'quantres8_w5a8',
     'quantres8_w2a8', 'quantres8_w2a8_nobn',
+    'quantres20_w2a8',
     'quantres8_w2a8_true', 'quantres8_w2a8_true_nobn',
     'quantres8_diana',
     'quantres8_diana5', 'quantres8_diana10', 'quantres8_diana100',
@@ -22,7 +23,46 @@ __all__ = [
 
 
 # MR
-class Backbone(nn.Module):
+class Backbone20(nn.Module):
+
+    def __init__(self, conv_func, input_size, bn, abits, wbits, **kwargs):
+        super().__init__()
+        self.bb_1_0 = BasicBlock(conv_func, 16, 16, wbits[:2], abits[:2], stride=1,
+                                 bn=bn, **kwargs)
+        self.bb_1_1 = BasicBlock(conv_func, 16, 16, wbits[2:4], abits[2:4], stride=1,
+                                 bn=bn, **kwargs)
+        self.bb_1_2 = BasicBlock(conv_func, 16, 16, wbits[4:6], abits[4:6], stride=1,
+                                 bn=bn, **kwargs)
+        self.bb_2_0 = BasicBlock(conv_func, 16, 32, wbits[6:9], abits[6:9], stride=2,
+                                 bn=bn, **kwargs)
+        self.bb_2_1 = BasicBlock(conv_func, 32, 32, wbits[9:11], abits[9:11], stride=1,
+                                 bn=bn, **kwargs)
+        self.bb_2_2 = BasicBlock(conv_func, 32, 32, wbits[11:13], abits[11:13], stride=1,
+                                 bn=bn, **kwargs)
+        self.bb_3_0 = BasicBlock(conv_func, 32, 64, wbits[13:16], abits[13:16], stride=2,
+                                 bn=bn, **kwargs)
+        self.bb_3_1 = BasicBlock(conv_func, 64, 64, wbits[16:18], abits[16:18], stride=1,
+                                 bn=bn, **kwargs)
+        self.bb_3_2 = BasicBlock(conv_func, 64, 64, wbits[18:20], abits[18:20], stride=1,
+                                 bn=bn, **kwargs)
+        self.pool = nn.AvgPool2d(kernel_size=8)
+
+    def forward(self, x):
+        x = self.bb_1_0(x)
+        x = self.bb_1_1(x)
+        x = self.bb_1_2(x)
+        x = self.bb_2_0(x)
+        x = self.bb_2_1(x)
+        x = self.bb_2_2(x)
+        x = self.bb_3_0(x)
+        x = self.bb_3_1(x)
+        x = self.bb_3_2(x)
+        x = self.pool(x)
+        return x
+
+
+# MR
+class BackboneTiny(nn.Module):
 
     def __init__(self, conv_func, input_size, bn, abits, wbits, **kwargs):
         super().__init__()
@@ -87,6 +127,60 @@ class BasicBlock(nn.Module):
         return out
 
 
+class ResNet20(nn.Module):
+
+    def __init__(self, conv_func, hw_model, archws, archas, qtz_fc=None,
+                 input_size=32, num_classes=10, bn=True, **kwargs):
+        print('archas: {}'.format(archas))
+        print('archws: {}'.format(archws))
+
+        self.inplanes = 16
+        self.conv_func = conv_func
+        self.hw_model = hw_model
+        self.search_types = ['fixed', 'mixed', 'multi']
+        if qtz_fc in self.search_types:
+            self.qtz_fc = qtz_fc
+        else:
+            self.qtz_fc = False
+        self.bn = bn
+        super().__init__()
+
+        # Model
+        self.conv1 = conv_func(3, 16, abits=archas[0], wbits=archws[0],
+                               kernel_size=3, stride=1, bias=False, padding=1,
+                               groups=1, first_layer=False, **kwargs)
+        if bn:
+            self.bn1 = nn.BatchNorm2d(16)
+        self.backbone = Backbone20(
+            conv_func, input_size, bn, abits=archas[1:-1], wbits=archws[1:-1], **kwargs)
+        self.fc = conv_func(
+            64, num_classes, abits=archas[-1], wbits=archws[-1],
+            kernel_size=1, stride=1, groups=1, bias=True, fc=self.qtz_fc, **kwargs)
+
+        # Initialize weights
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                if m.weight is not None:
+                    m.weight.data.fill_(1)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+
+    def forward(self, x):
+        x = self.conv1(x)
+        if self.bn:
+            x = self.bn1(x)
+
+        x = self.backbone(x)
+
+        x = x if self.qtz_fc else x.view(x.size(0), -1)
+        x = self.fc(x)[:, :, 0, 0] if self.qtz_fc else self.fc(x)
+
+        return x
+
+
 class TinyMLResNet(nn.Module):
 
     def __init__(self, conv_func, hw_model, archws, archas, qtz_fc=None,
@@ -111,7 +205,7 @@ class TinyMLResNet(nn.Module):
                                groups=1, first_layer=False, **kwargs)
         if bn:
             self.bn1 = nn.BatchNorm2d(16)
-        self.backbone = Backbone(
+        self.backbone = BackboneTiny(
             conv_func, input_size, bn, abits=archas[1:-1], wbits=archws[1:-1], **kwargs)
         self.fc = conv_func(
             64, num_classes, abits=archas[-1], wbits=archws[-1],
@@ -332,6 +426,20 @@ def quantres8_w2a8(arch_cfg_path, **kwargs):
     # Build Model
     model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
                          archws, archas, qtz_fc='multi', **kwargs)
+    # state_dict = torch.load(arch_cfg_path)['state_dict']
+    # model.load_state_dict(state_dict)
+    return model
+
+
+def quantres20_w2a8(arch_cfg_path, **kwargs):
+    archas, archws = [[8]] * 22, [[2]] * 22
+    # Set first and last layer weights precision to 8bit
+    archws[0] = [8]
+    archws[-1] = [8]
+
+    # Build Model
+    model = ResNet20(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+                     archws, archas, qtz_fc='multi', **kwargs)
     # state_dict = torch.load(arch_cfg_path)['state_dict']
     # model.load_state_dict(state_dict)
     return model
