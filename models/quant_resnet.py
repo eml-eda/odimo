@@ -234,31 +234,29 @@ class TinyMLResNet(nn.Module):
 
         return x
 
-    # def fetch_arch_info(self):  # BUGGED DA RIFARE
-    #     sum_cycles, sum_bita, sum_bitw = 0, 0, 0
-    #     layer_idx = 0
-    #     for m in self.modules():
-    #         if isinstance(m, self.conv_func):
-    #             size_product = m.size_product.item()
-    #             memory_size = m.memory_size.item()
-    #             if m.wbit != 2:
-    #                 sum_bitw += size_product * m.wbit
-    #             cycles = size_product / mpic_lut(m.abits, m.wbit)
-    #             bita = m.memory_size.item() * m.abits
-    #             bitw = m.param_size * m.wbit
-    #             #weight_shape = list(m.conv.weight.shape)
-    #             #print('idx {} with shape {}, bitops: {:.3f}M * {} * {}, memory: {:.3f}K * {}, '
-    #             #      'param: {:.3f}M * {}'.format(layer_idx, weight_shape,
-    #                                                 size_product, m.abit,
-    #             #                                   m.wbit, memory_size,
-    #                                                 m.abit, m.param_size, m.wbit))
-    #             sum_bitops += bitops
-    #             sum_cycles += cycles
-    #             sum_bita += bita
-    #             sum_bitw += bitw
-    #             layer_idx += 1
-    #     return sum_cycles, sum_bita, sum_bitw
-    #     #return sum_bitops, sum_bita, sum_bitw
+    def fetch_arch_info(self):
+        sum_cycles, sum_bita, sum_bitw = 0, 0, 0
+        layer_idx = 0
+        for m in self.modules():
+            if isinstance(m, self.conv_func):
+                size_product = m.size_product.item()
+                memory_size = m.memory_size.item()
+                wbit = m.wbits[0]
+                abit = m.abits[0]
+                sum_bitw += size_product * wbit
+
+                if wbit == 2:
+                    cycles = size_product / self.hw_model('analog')
+                else:
+                    cycles = size_product / self.hw_model('digital')
+
+                bita = memory_size * abit
+                bitw = m.param_size * wbit
+                sum_cycles += cycles
+                sum_bita += bita
+                sum_bitw += bitw
+                layer_idx += 1
+        return sum_cycles, sum_bita, sum_bitw
 
 
 def _load_arch(arch_path, names_nbits):
@@ -391,14 +389,16 @@ def quantres8_fp_foldbn(arch_cfg_path, **kwargs):
 
 def quantres8_w8a8(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 10, [[8]] * 10
-    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+    s_up = kwargs.pop('analog_speedup', 5.)
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                          archws, archas, qtz_fc='multi', **kwargs)
     return model
 
 
 def quantres8_w8a8_nobn(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 10, [[8]] * 10
-    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+    s_up = kwargs.pop('analog_speedup', 5.)
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                          archws, archas, qtz_fc='multi', bn=False, **kwargs)
     return model
 
@@ -408,9 +408,10 @@ def quantres8_w5a8(arch_cfg_path, **kwargs):
     # Set first and last layer weights precision to 8bit
     archws[0] = [8]
     archws[-1] = [8]
+    s_up = kwargs.pop('analog_speedup', 5.)
 
     # Build Model
-    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                          archws, archas, qtz_fc='multi', **kwargs)
     state_dict = torch.load(arch_cfg_path)['state_dict']
     model.load_state_dict(state_dict)
@@ -422,9 +423,10 @@ def quantres8_w2a8(arch_cfg_path, **kwargs):
     # Set first and last layer weights precision to 8bit
     archws[0] = [8]
     archws[-1] = [8]
+    s_up = kwargs.pop('analog_speedup', 5.)
 
     # Build Model
-    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                          archws, archas, qtz_fc='multi', **kwargs)
     # state_dict = torch.load(arch_cfg_path)['state_dict']
     # model.load_state_dict(state_dict)
@@ -436,9 +438,10 @@ def quantres20_w2a8(arch_cfg_path, **kwargs):
     # Set first and last layer weights precision to 8bit
     archws[0] = [8]
     archws[-1] = [8]
+    s_up = kwargs.pop('analog_speedup', 5.)
 
     # Build Model
-    model = ResNet20(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+    model = ResNet20(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                      archws, archas, qtz_fc='multi', **kwargs)
     # state_dict = torch.load(arch_cfg_path)['state_dict']
     # model.load_state_dict(state_dict)
@@ -450,9 +453,10 @@ def quantres8_w2a8_nobn(arch_cfg_path, **kwargs):
     # Set first and last layer weights precision to 8bit
     archws[0] = [8]
     archws[-1] = [8]
+    s_up = kwargs.pop('analog_speedup', 5.)
 
     # Build Model
-    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                          archws, archas, qtz_fc='multi', bn=False, **kwargs)
     # state_dict = torch.load(arch_cfg_path)['state_dict']
     # model.load_state_dict(state_dict)
@@ -461,9 +465,10 @@ def quantres8_w2a8_nobn(arch_cfg_path, **kwargs):
 
 def quantres8_w2a8_true(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 10, [[2]] * 10
+    s_up = kwargs.pop('analog_speedup', 5.)
 
     # Build Model
-    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                          archws, archas, qtz_fc='multi', **kwargs)
     # state_dict = torch.load(arch_cfg_path)['state_dict']
     # model.load_state_dict(state_dict)
@@ -472,9 +477,10 @@ def quantres8_w2a8_true(arch_cfg_path, **kwargs):
 
 def quantres8_w2a8_true_nobn(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 10, [[2]] * 10
+    s_up = kwargs.pop('analog_speedup', 5.)
 
     # Build Model
-    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                          archws, archas, qtz_fc='multi', bn=False, **kwargs)
     # state_dict = torch.load(arch_cfg_path)['state_dict']
     # model.load_state_dict(state_dict)
