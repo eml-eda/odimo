@@ -30,7 +30,7 @@ if [[ "$4" == "search" ]]; then
     split=0.2
     # NB: add --warmup-8bit if needed
     python3 search.py ${path}/${arch}/model_${strength} -a mix${arch} \
-        -d cifar --tiny-test --arch-data-split ${split} \
+        -d cifar --arch-data-split ${split} \
         --epochs 500 --step-epoch 50 -b 32 \
         --warmup ${warmup} --no-warmup-8bit --patience 100 \
         --lr 0.001 --lra 0.01 --wd 1e-4 \
@@ -43,7 +43,7 @@ fi
 if [[ "$5" == "ft" ]]; then
     echo Fine-Tune
     python3 main.py ${path}/${arch}/model_${strength} -a quant${arch} \
-        -d cifar --tiny-test --epochs 500 --step-epoch 50 -b 32 --patience 500 \
+        -d cifar --epochs 500 --step-epoch 50 -b 32 --patience 500 \
         --lr 0.001 --wd 1e-4 \
         --seed 42 --gpu 0 \
         --ac ${arch}/model_${strength}/arch_model_best.pth.tar -ft \
@@ -55,7 +55,7 @@ else
     #pretrained_model="warmup_5bit.pth.tar"
     pretrained_model="warmup_fp.pth.tar"
     python3 main.py ${path}/${arch}/model_${strength} -a quant${arch} \
-        -d cifar --tiny-test --epochs 500 --step-epoch 50 -b 32 --patience 500 \
+        -d cifar --epochs 500 --step-epoch 50 -b 32 --patience 500 \
         --lr 0.001 --wd 1e-4 \
         --seed 42 --gpu 0 \
         --ac ${pretrained_model} | tee ${path}/${arch}/model_${strength}/log_fromscratch_${strength}.txt
