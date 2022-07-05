@@ -13,6 +13,7 @@ from . import hw_models as hw
 __all__ = [
     'quantres8_fp', 'quantres8_fp_foldbn',
     'quantres8_w8a8', 'quantres8_w8a8_nobn',
+    'quantres20_w8a8',
     'quantres8_w5a8',
     'quantres8_w2a8', 'quantres8_w2a8_nobn',
     'quantres20_w2a8',
@@ -392,6 +393,14 @@ def quantres8_w8a8(arch_cfg_path, **kwargs):
     s_up = kwargs.pop('analog_speedup', 5.)
     model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                          archws, archas, qtz_fc='multi', **kwargs)
+    return model
+
+
+def quantres20_w8a8(arch_cfg_path, **kwargs):
+    archas, archws = [[8]] * 22, [[8]] * 22
+    s_up = kwargs.pop('analog_speedup', 5.)
+    model = ResNet20(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
+                     archws, archas, qtz_fc='multi', **kwargs)
     return model
 
 

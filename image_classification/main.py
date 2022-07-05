@@ -31,6 +31,8 @@ model_names = sorted(name for name in models.__dict__
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
+parser.add_argument('--tiny-test', action='store_true',
+                    help='whether to use MLPerf Tiny test-set')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet8',
                     choices=model_names,
                     help='model architecture: ' +
@@ -264,8 +266,9 @@ def main_worker(gpu, ngpus_per_node, args):
             batch_size=args.batch_size, shuffle=True,
             num_workers=args.workers, pin_memory=True)
 
-        _idxs = np.load('perf_samples_idxs.npy')
-        test_set = torch.utils.data.Subset(test_set, _idxs)
+        if args.tiny_test:
+            _idxs = np.load('perf_samples_idxs.npy')
+            test_set = torch.utils.data.Subset(test_set, _idxs)
         test_loader = torch.utils.data.DataLoader(
             test_set,
             batch_size=args.batch_size, shuffle=False,
