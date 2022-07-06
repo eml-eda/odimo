@@ -15,7 +15,7 @@ print(args)
 # Build and Load pretrained model if specified
 if args.pretrained_model is not None:
     model = models.__dict__[args.arch](
-        args.pretrained_model, num_classes=args.num_classes, 
+        args.pretrained_model, num_classes=args.num_classes,
         fine_tune=False, analog_speedup=args.analog_speedup)
 else:
     model = models.__dict__[args.arch](
