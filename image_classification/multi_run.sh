@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
 
-source run_ic.sh 1.0e-4 0 res8_diana5 search ft
-source run_ic.sh 1.0e-3 0 res8_diana5 search ft
-source run_ic.sh 1.0e-1 0 res8_diana5 search ft
+source run_ic.sh FQAct_ln6 0 res8_w8a8 nsearch nft
+source run_ic.sh FQAct_ln6 0 res8_w8a8_nobn nsearch nft
