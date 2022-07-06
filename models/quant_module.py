@@ -37,6 +37,19 @@ class _bias_asym_min_max_quantize(torch.autograd.Function):
         return grad_output, None, None
 
 
+# MR:
+class _bias_sym_min_max_quantize(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x, bit):
+        bias_max = x.abs().max()
+        return _bias_min_max_quantize_common(x, -bias_max, bias_max, bit)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output, None, None
+
+
 # MR
 def _bias_min_max_quantize_common(x, ch_min, ch_max, bit):
     bias_range = ch_max - ch_min
@@ -403,7 +416,7 @@ class QuantMultiPrecConv2d(nn.Module):
             mix_quant_weight.append(scaled_quant_weight)
         mix_quant_weight = sum(mix_quant_weight)
         if bias is not None:
-            quant_bias = _bias_asym_min_max_quantize.apply(bias, 32)
+            quant_bias = _bias_sym_min_max_quantize.apply(bias, 32)
         else:
             quant_bias = bias
         out = F.conv2d(
@@ -512,7 +525,7 @@ class QuantMixChanConv2d(nn.Module):
         bias = getattr(conv, 'bias', None)
         quant_weight = _channel_asym_min_max_quantize.apply(conv.weight, self.bits)
         if bias is not None:
-            quant_bias = _bias_asym_min_max_quantize.apply(bias, 32)
+            quant_bias = _bias_sym_min_max_quantize.apply(bias, 32)
         else:
             quant_bias = bias
         out = F.conv2d(
@@ -618,7 +631,7 @@ class SharedMixQuantChanConv2d(nn.Module):
             # Complexity
             mix_wbit += sw[i] * bit
         if bias is not None:
-            quant_bias = _bias_asym_min_max_quantize.apply(bias, 32)
+            quant_bias = _bias_sym_min_max_quantize.apply(bias, 32)
         else:
             quant_bias = bias
         mix_quant_weight = sum(mix_quant_weight)
@@ -702,7 +715,7 @@ class SharedMultiPrecConv2d(nn.Module):
 
         # Quantize bias if present
         if bias is not None:
-            quant_bias = _bias_asym_min_max_quantize.apply(bias, 32)
+            quant_bias = _bias_sym_min_max_quantize.apply(bias, 32)
         else:
             quant_bias = bias
 

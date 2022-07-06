@@ -65,3 +65,19 @@ def fold_bn(model, inplace=False):
                 node.replace_all_uses_with(node.args[0])
                 new_graph.erase_node(node)
     return fx.GraphModule(fx_model, new_graph)
+
+
+def fp_to_q(state_dict):
+    state_dict = copy.deepcopy(state_dict)
+    converted_dict = dict()
+
+    for name, params in state_dict.items():
+        full_name = name
+        name = name.split('.')[-1]
+        if name in ['weight', 'bias']:
+            name_list = full_name.split('.')
+            name_list.insert(-2, 'mix_weight')
+            new_name = '.'.join(name_list)
+            converted_dict[new_name] = params
+
+    return converted_dict
