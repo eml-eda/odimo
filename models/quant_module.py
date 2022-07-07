@@ -331,8 +331,8 @@ class QuantMultiPrecActivConv2d(nn.Module):
             self.fc = fc
         else:
             self.fc = False
-        # self.mix_activ = QuantPaCTActiv(abits)
-        self.mix_activ = QuantFQActiv(abits)
+        self.mix_activ = QuantPaCTActiv(abits)
+        # self.mix_activ = QuantFQActiv(abits)
         if not fc:
             self.mix_weight = QuantMultiPrecConv2d(inplane, outplane, wbits, **kwargs)
         else:
