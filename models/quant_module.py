@@ -288,7 +288,6 @@ class FQConvWeightQuantization(nn.Module):
         # self.n_s = cout  # One scale-param per channel
         self.n_s = 1  # One scale-param per layer
         self.scale_param = nn.Parameter(torch.Tensor(self.n_s), requires_grad=train_scale_param)
-        # if num_bits == 2:
         # Choose s in such a way the [-1, 0, 1] values are equiprobable
         mu = torch.tensor([0.])
         std = math.sqrt(2/torch.tensor([self.cout * self.k_size]))
@@ -332,8 +331,8 @@ class QuantMultiPrecActivConv2d(nn.Module):
             self.fc = fc
         else:
             self.fc = False
-        self.mix_activ = QuantPaCTActiv(abits)
-        # self.mix_activ = QuantFQActiv(abits)
+        # self.mix_activ = QuantPaCTActiv(abits)
+        self.mix_activ = QuantFQActiv(abits)
         if not fc:
             self.mix_weight = QuantMultiPrecConv2d(inplane, outplane, wbits, **kwargs)
         else:
@@ -457,7 +456,9 @@ class QuantMultiPrecConv2d(nn.Module):
         for bit in self.bits:
             self.mix_weight.append(
                 FQConvWeightQuantization(
-                    outplane, k_size, num_bits=bit, train_scale_param=self.train_scale_param))
+                    outplane, k_size,
+                    num_bits=bit,
+                    train_scale_param=self.train_scale_param))
 
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
 

@@ -375,7 +375,7 @@ def main_worker(gpu, ngpus_per_node, args):
         acc1 = validate(val_loader, model, criterion, epoch, args)
         acc1_test = validate(test_loader, model, criterion, epoch, args)
 
-        adjust_learning_rate(optimizer, epoch, args)
+        # adjust_learning_rate(optimizer, epoch, args)
         if q_scheduler is not None:
             q_scheduler.step()
 
