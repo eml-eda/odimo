@@ -56,7 +56,7 @@ else
     pretrained_model="warmup_fp.pth.tar"
     python3 main.py ${path}/${arch}/model_${strength} -a quant${arch} \
         -d cifar --tiny-test --epochs 500 --step-epoch 50 -b 32 --patience 500 \
-        --lr 0.001 --wd 1e-4 \
+        --lr 0.00001 --wd 1e-4 \
         --seed 42 --gpu 0 \
         --ac ${pretrained_model} | tee ${path}/${arch}/model_${strength}/log_fromscratch_${strength}.txt
 fi
