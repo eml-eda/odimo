@@ -8,6 +8,11 @@ from torch.nn.utils.fusion import fuse_conv_bn_eval
 from . import quant_module as qm
 
 
+def _non_zero_frac(w, init_scale_param):
+    scaled_w = w / torch.exp(init_scale_param)
+    return scaled_w.clamp_(-1, 1).round().count_nonzero() / w.numel()
+
+
 def _parent_name(target):
     """
     Splits a qualname into parent path and last atom.
@@ -111,7 +116,10 @@ def init_scale_param(model):
                     nb = submodule.num_bits
                     if nb == 2:
                         # Init scale param to have ~50% of weights != 0
-                        raise NotImplementedError
+                        init_scale_param = torch.tensor(0.)
+                        delta = 0.1
+                        while _non_zero_frac(w, init_scale_param) < 0.5:
+                            init_scale_param -= delta
                     else:
                         # Init scale param to maximize the quantization range
                         init_scale_param = torch.log(2 * w.abs().max())
