@@ -276,6 +276,28 @@ class FQActQuantization(nn.Module):
             scale_param={self.scale_param})'
 
 
+class FQConvBiasQuantization(nn.Module):
+    def __init__(self, cout, num_bits, inplace=False):
+        super().__init__()
+        self.cout = cout
+        self.num_bits = num_bits
+        self.n_s = 1 if num_bits != 2 else cout
+        self.inplace = inplace
+
+    def forward(self, x, w_scale, act_scale):
+        # Having a positive scale factor is preferable to avoid instabilities
+        scale_param = torch.exp(w_scale) * act_scale
+        x_scaled = x / scale_param.view(self.n_s)
+        # Quantize
+        x_q = FQQuantizationSTE.apply(x_scaled, 16, self.inplace, -1)
+        # Multiply by scale factor
+        x_deq = x_q * scale_param.view(self.n_s)
+        return x_deq
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}(num_bits={self.num_bits})'
+
+
 # MR (Ref: https://arxiv.org/abs/1912.09356)
 class FQConvWeightQuantization(nn.Module):
     def __init__(self, cout, k_size, num_bits, init_scale_param=0.,
@@ -285,8 +307,7 @@ class FQConvWeightQuantization(nn.Module):
         self.k_size = k_size
         self.num_bits = num_bits
         self.train_scale_param = train_scale_param
-        # self.n_s = cout  # One scale-param per channel
-        self.n_s = 1  # One scale-param per layer
+        self.n_s = 1 if num_bits != 2 else cout
         self.scale_param = nn.Parameter(torch.Tensor(self.n_s), requires_grad=train_scale_param)
         # Choose s in such a way the [-1, 0, 1] values are equiprobable
         mu = torch.tensor([0.])
@@ -372,10 +393,11 @@ class QuantMultiPrecActivConv2d(nn.Module):
         # tmp = torch.tensor(self.filter_size * in_shape[-1] * in_shape[-2], dtype=torch.float)
         self.size_product.copy_(size_product(self.filter_size, in_shape))
         if not self.first_layer:
-            out = self.mix_activ(input)
+            out, act_scale = self.mix_activ(input)
         else:
             out = _channel_asym_min_max_quantize.apply(input, 8)
-        out = self.mix_weight(out)
+            act_scale = None
+        out = self.mix_weight(out, act_scale)
         return out
 
 
@@ -421,14 +443,16 @@ class QuantPaCTActiv(nn.Module):
             self.mix_activ.append(LearnedClippedLinearQuantization(num_bits=bit))
 
     def forward(self, input):
-        outs = []
+        outs = list()
+        act_scale = list()
         # self.alpha_activ = torch.nn.Parameter(clamp(self.alpha_activ,-100,+100))
         sw = F.one_hot(torch.argmax(self.alpha_activ), num_classes=len(self.bits))
         for i, branch in enumerate(self.mix_activ):
             # torch.nan_to_num() necessary to avoid nan in the output when multiplying by zero
             outs.append(torch.nan_to_num(branch(input)) * sw[i])
+            act_scale.append(branch.clip_val)
         activ = sum(outs)
-        return activ
+        return activ, torch.stack(act_scale)
 
 
 # MR
@@ -452,6 +476,7 @@ class QuantMultiPrecConv2d(nn.Module):
 
         # Quantizer
         self.mix_weight = nn.ModuleList()
+        self.mix_bias = nn.ModuleList()
         self.train_scale_param = kwargs.pop('train_scale_param', True)
         for bit in self.bits:
             self.mix_weight.append(
@@ -459,26 +484,34 @@ class QuantMultiPrecConv2d(nn.Module):
                     outplane, k_size,
                     num_bits=bit,
                     train_scale_param=self.train_scale_param))
+            self.mix_bias.append(
+                FQConvBiasQuantization(outplane, num_bits=bit))
 
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
 
-    def forward(self, input):
-        mix_quant_weight = []
+    def forward(self, input, act_scale=None):
+        mix_quant_weight = list()
+        mix_quant_bias = list()
         sw = F.one_hot(torch.argmax(self.alpha_weight, dim=0), num_classes=len(self.bits)).t()
         conv = self.conv
         weight = conv.weight
         bias = getattr(conv, 'bias', None)
         for i, bit in enumerate(self.bits):
             quant_weight = self.mix_weight[i](weight)
+            w_scale = self.mix_weight[i].scale_param
             scaled_quant_weight = quant_weight * sw[i].view((self.cout, 1, 1, 1))
             mix_quant_weight.append(scaled_quant_weight)
-        mix_quant_weight = sum(mix_quant_weight)
-        if bias is not None:
-            quant_bias = _bias_sym_min_max_quantize.apply(bias, 32)
+            if bias is not None:
+                quant_bias = self.mix_bias[i](bias, w_scale, act_scale)
+                scaled_quant_bias = quant_bias * sw[i].view(self.cout)
+                mix_quant_bias.append(scaled_quant_bias)
+        if mix_quant_bias:
+            mix_quant_bias = sum(mix_quant_bias)
         else:
-            quant_bias = bias
+            mix_quant_bias = None
+        mix_quant_weight = sum(mix_quant_weight)
         out = F.conv2d(
-            input, mix_quant_weight, quant_bias, conv.stride,
+            input, mix_quant_weight, mix_quant_bias, conv.stride,
             conv.padding, conv.dilation, conv.groups)
         return out
 
