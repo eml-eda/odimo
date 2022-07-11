@@ -133,10 +133,12 @@ def init_scale_param(model):
                 for submodule in module.mix_weight:
                     nb = submodule.num_bits
                     if nb == 2:
+                        continue
                         cout = w.shape[0]  # Per-Ch scale factor
                         # cout = 1  # Per-Layer scale factor
                         # Init scale param to have ~50% of weights != 0
-                        init_scale_param = torch.zeros([cout], dtype=torch.float32)
+                        # init_scale_param = torch.zeros([cout], dtype=torch.float32)
+                        init_scale_param = submodule.scale_param
                         delta = .1
                         target = .5
                         non_zero_frac = _non_zero_frac(w, init_scale_param, cout)
@@ -147,7 +149,7 @@ def init_scale_param(model):
                         # Init scale param to maximize the quantization range
                         init_scale_param = torch.log(2 * w.abs().max())
                         # init_scale_param = torch.log(w.abs().max())
-                    submodule.scale_param.data = init_scale_param
+                        submodule.scale_param.data = init_scale_param
 
 
 def q_to_fp(state_dict):
