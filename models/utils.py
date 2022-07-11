@@ -8,9 +8,17 @@ from torch.nn.utils.fusion import fuse_conv_bn_eval
 from . import quant_module as qm
 
 
-def _non_zero_frac(w, init_scale_param):
-    scaled_w = w / torch.exp(init_scale_param)
-    return scaled_w.clamp_(-1, 1).round().count_nonzero() / w.numel()
+def _non_zero_frac(w, init_scale_param, cout):
+    dim = w.dim()
+    axs = tuple(i for i in range(1, dim))
+    scaled_w = w / torch.exp(init_scale_param).view(cout, 1, 1, 1)
+    ch_numel = w.numel() / cout  # N. of elements for each output channel slice of w
+    if cout != 1:
+        frac = scaled_w.clamp_(-1, 1).round().count_nonzero(dim=axs) / ch_numel
+    else:
+        frac = scaled_w.clamp_(-1, 1).round().count_nonzero() / ch_numel
+        frac = frac.unsqueeze(0)
+    return frac
 
 
 def _parent_name(target):
@@ -23,7 +31,7 @@ def _parent_name(target):
 
 
 # Works for length 2 patterns with 2 modules
-def matches_module_pattern(pattern, node, modules):
+def _matches_module_pattern(pattern, node, modules):
     if len(node.args) == 0:
         return False
     nodes = (node.args[0], node)
@@ -41,11 +49,21 @@ def matches_module_pattern(pattern, node, modules):
     return True
 
 
-def replace_node_module(node, modules, new_module):
+def _replace_node_module(node, modules, new_module):
     assert(isinstance(node.target, str))
     parent_name, name = _parent_name(node.target)
     modules[node.target] = new_module
     setattr(modules[parent_name], name, new_module)
+
+
+def adapt_scale_params(state_dict, model):
+    new_dict = copy.deepcopy(state_dict)
+    for key in state_dict.keys():
+        if 'scale_param' in key:
+            dim = model.state_dict()[key].shape
+            new_dict[key] = state_dict[key].repeat(dim)
+
+    return new_dict
 
 
 # http://tinyurl.com/2p9a22kd <- copied from torch.fx experimental (torch v11.0)
@@ -61,7 +79,7 @@ def fold_bn(model, inplace=False):
 
     for pattern in patterns:
         for node in new_graph.nodes:
-            if matches_module_pattern(pattern, node, modules):
+            if _matches_module_pattern(pattern, node, modules):
                 if len(node.args[0].users) > 1:  # Output of conv is used by other nodes
                     continue
                 conv = modules[node.args[0].target]
@@ -69,7 +87,7 @@ def fold_bn(model, inplace=False):
                 if not bn.track_running_stats:
                     continue
                 fused_conv = fuse_conv_bn_eval(conv, bn)
-                replace_node_module(node.args[0], modules, fused_conv)
+                _replace_node_module(node.args[0], modules, fused_conv)
                 node.replace_all_uses_with(node.args[0])
                 new_graph.erase_node(node)
     return fx.GraphModule(fx_model, new_graph)
@@ -115,13 +133,33 @@ def init_scale_param(model):
                 for submodule in module.mix_weight:
                     nb = submodule.num_bits
                     if nb == 2:
+                        cout = w.shape[0]  # Per-Ch scale factor
+                        # cout = 1  # Per-Layer scale factor
                         # Init scale param to have ~50% of weights != 0
-                        init_scale_param = torch.tensor(0.)
-                        delta = 0.1
-                        while _non_zero_frac(w, init_scale_param) < 0.5:
-                            init_scale_param -= delta
+                        init_scale_param = torch.zeros([cout], dtype=torch.float32)
+                        delta = .1
+                        target = .5
+                        non_zero_frac = _non_zero_frac(w, init_scale_param, cout)
+                        while any(non_zero_frac < target):
+                            init_scale_param[non_zero_frac < target] -= delta
+                            non_zero_frac = _non_zero_frac(w, init_scale_param, cout)
                     else:
                         # Init scale param to maximize the quantization range
                         init_scale_param = torch.log(2 * w.abs().max())
                         # init_scale_param = torch.log(w.abs().max())
-                    submodule.scale_param.data.fill_(init_scale_param)
+                    submodule.scale_param.data = init_scale_param
+
+
+def q_to_fp(state_dict):
+    converted_dict = copy.deepcopy(state_dict)
+
+    for name, params in state_dict.items():
+        full_name = name
+        name = '.'.join(name.split('.')[-2:])
+        if name in ['conv.weight', 'conv.bias']:
+            name_list = full_name.split('.')
+            name_list.remove('mix_weight')
+            new_name = '.'.join(name_list)
+            converted_dict[new_name] = params
+
+    return converted_dict

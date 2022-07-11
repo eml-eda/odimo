@@ -168,6 +168,53 @@
                 "--seed", "42",
                 "--gpu", "0"
             ]
+        },
+        {
+            "name": "Python: res8_w2a8_nobn",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/image_classification",
+            "args": [
+                "res8_w2a8_nobn/model_debug",
+                "-a", "quantres8_w2a8_nobn",
+                "-d", "cifar",
+                "--tiny-test",
+                "--epochs", "500",
+                "--step-epoch", "50",
+                "-b", "32",
+                "--patience", "100",
+                "--lr", "0.001",
+                "--wd", "1e-4",
+                "--seed", "42",
+                "--gpu", "0"
+            ]
+        },
+        {
+            "name": "Python: res8_w2a8_foldbn",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/image_classification",
+            "args": [
+                "res8_w2a8/model_debug",
+                "-a", "quantres8_w2a8_foldbn_test",
+                "-d", "cifar",
+                "--tiny-test",
+                "--epochs", "500",
+                "--step-epoch", "50",
+                "-b", "32",
+                "--patience", "500",
+                "--lr", "0.00001",
+                "--wd", "1e-4",
+                "--seed", "42",
+                "--gpu", "0",
+                "--ac", "warmup_w2a8.pth.tar"
+            ]
         }
     ]
 }

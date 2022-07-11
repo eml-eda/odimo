@@ -145,6 +145,7 @@ def linear_dequantize(input, scale_factor, inplace=False):
 
 
 # DJP
+@torch.fx.wrap
 def clamp(x, min, max, inplace=False):
     if inplace:
         x.clamp_(min, max)
@@ -281,7 +282,8 @@ class FQConvBiasQuantization(nn.Module):
         super().__init__()
         self.cout = cout
         self.num_bits = num_bits
-        self.n_s = 1 if num_bits != 2 else cout
+        # self.n_s = 1  # Per-Layer scale-factor
+        self.n_s = 1 if num_bits != 2 else cout  # Per-Ch scale factor
         self.inplace = inplace
 
     def forward(self, x, w_scale, act_scale):
@@ -307,7 +309,8 @@ class FQConvWeightQuantization(nn.Module):
         self.k_size = k_size
         self.num_bits = num_bits
         self.train_scale_param = train_scale_param
-        self.n_s = 1 if num_bits != 2 else cout
+        # self.n_s = 1  # Per-Layer scale factor
+        self.n_s = 1 if num_bits != 2 else cout  # Per-Ch scale factor
         self.scale_param = nn.Parameter(torch.Tensor(self.n_s), requires_grad=train_scale_param)
         # Choose s in such a way the [-1, 0, 1] values are equiprobable
         mu = torch.tensor([0.])
