@@ -53,7 +53,7 @@ else
     #pretrained_model="${arch}/model_${strength}/arch_model_best.pth.tar"
     #pretrained_model="warmup_8bit.pth.tar"
     #pretrained_model="warmup_5bit.pth.tar"
-    pretrained_model="warmup_fp.pth.tar"
+    pretrained_model="warmup20_fp.pth.tar"
     python3 main.py ${path}/${arch}/model_${strength} -a quant${arch} \
         -d cifar --epochs 500 --step-epoch 50 -b 32 --patience 500 \
         --lr 0.001 --wd 1e-4 \

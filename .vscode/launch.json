@@ -215,6 +215,30 @@
                 "--gpu", "0",
                 "--ac", "warmup_fp.pth.tar"
             ]
+        },
+        {
+            "name": "Python: res8_w2a8_true_foldbn",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/image_classification",
+            "args": [
+                "res8_w2a8_true_foldbn/model_debug",
+                "-a", "quantres8_w2a8_true_foldbn",
+                "-d", "cifar",
+                "--tiny-test",
+                "--epochs", "500",
+                "--step-epoch", "50",
+                "-b", "32",
+                "--patience", "500",
+                "--lr", "0.001",
+                "--wd", "1e-4",
+                "--seed", "42",
+                "--gpu", "0",
+                "--ac", "warmup_fp.pth.tar"
+            ]
         }
     ]
 }
