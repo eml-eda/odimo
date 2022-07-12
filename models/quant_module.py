@@ -278,20 +278,25 @@ class FQActQuantization(nn.Module):
 
 
 class FQConvBiasQuantization(nn.Module):
-    def __init__(self, cout, num_bits, inplace=False):
+    def __init__(self, cout, num_bits, abit, inplace=False):
         super().__init__()
         self.cout = cout
         self.num_bits = num_bits
+        self.abit = abit[0]  # TODO: Understand how to manage this stuff if multiple abit allowed
+        self.b_prec = 16
         # self.n_s = 1  # Per-Layer scale-factor
         self.n_s = 1 if num_bits != 2 else cout  # Per-Ch scale factor
         self.inplace = inplace
 
     def forward(self, x, w_scale, act_scale):
+        n_w = 2**(self.num_bits - 1) - 1
+        n_a = 2**(self.abit) - 1
+        n_b = 2**(self.b_prec - 1) - 1
         # Having a positive scale factor is preferable to avoid instabilities
-        scale_param = torch.exp(w_scale) * act_scale
+        scale_param = n_b * (torch.exp(w_scale) / n_w) * (act_scale / n_a)
         x_scaled = x / scale_param.view(self.n_s)
         # Quantize
-        x_q = FQQuantizationSTE.apply(x_scaled, 16, self.inplace, -1)
+        x_q = FQQuantizationSTE.apply(x_scaled, self.b_prec, self.inplace, -1)
         # Multiply by scale factor
         x_deq = x_q * scale_param.view(self.n_s)
         return x_deq
@@ -358,7 +363,7 @@ class QuantMultiPrecActivConv2d(nn.Module):
         self.mix_activ = QuantPaCTActiv(abits)
         # self.mix_activ = QuantFQActiv(abits)
         if not fc:
-            self.mix_weight = QuantMultiPrecConv2d(inplane, outplane, wbits, **kwargs)
+            self.mix_weight = QuantMultiPrecConv2d(inplane, outplane, wbits, abits=abits, **kwargs)
         else:
             # For the final fc layer the pruning bit-width (i.e., 0) makes no sense
             _wbits = copy.deepcopy(wbits)
@@ -374,7 +379,7 @@ class QuantMultiPrecActivConv2d(nn.Module):
             elif self.fc == 'multi':
                 # - Multi-precision search
                 self.mix_weight = QuantMultiPrecConv2d(
-                    inplane, outplane, _wbits, train_scale_param=True, **kwargs)
+                    inplane, outplane, _wbits, abits=abits, **kwargs)
             else:
                 raise ValueError(f"Unknown fc search, possible values are {self.search_types}")
 
@@ -463,7 +468,7 @@ class QuantMultiPrecConv2d(nn.Module):
 
     def __init__(self, inplane, outplane, bits, **kwargs):
         super().__init__()
-        kwargs.pop('abit', None)
+        self.abits = kwargs.pop('abits', 8)
         if type(bits) == int:
             self.bits = [bits]
         else:
@@ -488,7 +493,10 @@ class QuantMultiPrecConv2d(nn.Module):
                     num_bits=bit,
                     train_scale_param=self.train_scale_param))
             self.mix_bias.append(
-                FQConvBiasQuantization(outplane, num_bits=bit))
+                FQConvBiasQuantization(
+                    outplane,
+                    num_bits=bit,
+                    abit=self.abits))
 
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
 
