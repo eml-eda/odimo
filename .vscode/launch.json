@@ -5,6 +5,36 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: res8_diana5",
+            "type": "python",
+            "request": "launch",
+            "program": "search.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/image_classification",
+            "args": [
+                "res8_diana5/model_debug",
+                "-a", "mixres8_diana5",
+                "-d", "cifar10",
+                "--arch-data-split", "0.2",
+                "--tiny-test",
+                "--ac", "warmup_fp.pth.tar",
+                "--epochs", "500",
+                "--step-epoch", "50",
+                "-b", "32",
+                "--patience", "100",
+                "--lr", "0.001",
+                "--wd", "1e-2",
+                "--ai", "same",
+                "--cd", "1e-4",
+                "--no-gumbel-softmax",
+                "--temperature", "5",
+                "--anneal-temp",
+                "--seed", "42",
+                "--gpu", "0"
+            ]
+        },
+        {
             "name": "Python: res8_fp",
             "type": "python",
             "request": "launch",

@@ -20,7 +20,6 @@ import torch.multiprocessing as mp
 import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.transforms as transforms
-import torchvision.datasets as datasets
 import torchvision
 
 import wandb
@@ -32,9 +31,11 @@ model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
                      and callable(models.__dict__[name]))
 
-parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
+parser = argparse.ArgumentParser(description='PyTorch Cifar Training')
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
+parser.add_argument('--tiny-test', action='store_true',
+                    help='whether to use MLPerf Tiny test-set')
 parser.add_argument('--arch-data-split', type=float, default=None,
                     help='Split of the data to use for the update of alphas')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet8',
@@ -45,7 +46,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet8',
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('-d', '--dataset', default='None', type=str,
-                    help='cifar or imagenet')
+                    help='cifar10 or cifar100')
 parser.add_argument('--epochs', default=500, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--patience', default=20, type=int, metavar='N',
@@ -54,13 +55,6 @@ parser.add_argument('--step-epoch', default=50, type=int, metavar='N',
                     help='number of epochs to decay learning rate')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('--warmup', default=0, type=int,
-                    help='number of warmup epochs'
-                         '(default: 0 -> no warmup)')
-parser.add_argument('--warmup-8bit', dest='warmup_8bit', action='store_true', default=False,
-                    help='Use model pretrained on 8-bit as starting point')
-parser.add_argument('--no-warmup-8bit', dest='warmup_8bit', action='store_false',
-                    default=True, help='Don\'t use model pretrained on 8-bit as starting point')
 parser.add_argument('-b', '--batch-size', default=32, type=int,
                     metavar='N',
                     help='mini-batch size (default: 32), this is the total '
@@ -70,6 +64,8 @@ parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
 parser.add_argument('--lra', '--learning-rate-alpha', default=0.01, type=float,
                     metavar='LR', help='initial alpha learning rate')
+parser.add_argument('--lrq', '--learning-rate-q', default=1e-5, type=float,
+                    metavar='LR', help='initial q learning rate', dest='lrq')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
 parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
@@ -99,6 +95,8 @@ parser.add_argument('-p', '--print-freq', default=100, type=int,
                     metavar='N', help='print frequency (default: 100)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
+parser.add_argument('--arch-cfg', '--ac', default='', type=str, metavar='PATH',
+                    help='path to pretrained weights')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
 parser.add_argument('--pretrained', dest='pretrained', action='store_true',
@@ -160,6 +158,7 @@ def main():
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
+        np.random.seed(args.seed)
         cudnn.benchmark = False
         torch.use_deterministic_algorithms(True)
         warnings.warn('You have chosen to seed training. '
@@ -209,46 +208,9 @@ def main_worker(gpu, ngpus_per_node, args):
                                 world_size=args.world_size, rank=args.rank)
 
     # Data loading code
-    if 'imagenet' in args.dataset:
-        num_classes = 1000
-
-        traindir = args.data.parent.parent / 'imagenet' / 'train'
-        valdir = args.data.parent.parent / 'imagenet' / 'val'
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                         std=[0.229, 0.224, 0.225])
-
-        if 'inception' in args.arch:
-            crop_size, short_size = 299, 342
-        else:
-            crop_size, short_size = 224, 256
-        train_dataset = datasets.ImageFolder(
-            traindir,
-            transforms.Compose([
-                transforms.RandomResizedCrop(crop_size),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                normalize,
-            ]))
-
-        if args.distributed:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-        else:
-            train_sampler = None
-
-        train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
-            num_workers=args.workers, pin_memory=True, sampler=train_sampler)
-
-        val_loader = torch.utils.data.DataLoader(
-            datasets.ImageFolder(valdir, transforms.Compose([
-                transforms.Resize(short_size),
-                transforms.CenterCrop(crop_size),
-                transforms.ToTensor(),
-                normalize,
-            ])),
-            batch_size=args.batch_size, shuffle=False,
-            num_workers=args.workers, pin_memory=True)
-    elif 'cifar' in args.dataset:
+    if 'cifar100' in args.dataset:
+        raise NotImplementedError
+    elif 'cifar10' in args.dataset:
         num_classes = 10
 
         transform_train = transforms.Compose([
@@ -263,10 +225,11 @@ def main_worker(gpu, ngpus_per_node, args):
             # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
         ])
 
-        if args.distributed:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-        else:
-            train_sampler = None
+        # if args.distributed:
+        #     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+        # else:
+        #     train_sampler = None
+        train_sampler = None
 
         data_dir = args.data.parent.parent / 'data'
 
@@ -293,8 +256,9 @@ def main_worker(gpu, ngpus_per_node, args):
             batch_size=args.batch_size, shuffle=True,
             num_workers=args.workers, pin_memory=True)
 
-        _idxs = np.load('perf_samples_idxs.npy')
-        test_set = torch.utils.data.Subset(test_set, _idxs)
+        if args.tiny_test:
+            _idxs = np.load('perf_samples_idxs.npy')
+            test_set = torch.utils.data.Subset(test_set, _idxs)
         test_loader = torch.utils.data.DataLoader(
             test_set,
             batch_size=args.batch_size, shuffle=False,
@@ -302,7 +266,14 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # create model
     print("=> creating model '{}'".format(args.arch))
-    model = models.__dict__[args.arch](
+    if len(args.arch_cfg) > 0:
+        if os.path.isfile(args.arch_cfg):
+            print("=> loading pretrained w from '{}'".format(args.arch_cfg))
+        else:
+            print("=> no architecture found at '{}'".format(args.arch_cfg))
+    model_fn = models.__dict__[args.arch]
+    model = model_fn(
+        args.arch_cfg,
         num_classes=num_classes,
         reg_target=args.regularization_target,
         alpha_init=args.alpha_init,
@@ -354,7 +325,7 @@ def main_worker(gpu, ngpus_per_node, args):
     optimizer = torch.optim.Adam(params, args.lr, weight_decay=args.weight_decay)
     arch_optimizer = torch.optim.SGD(alpha_params, args.lra, momentum=args.momentum,
                                      weight_decay=args.alpha_decay)
-    q_optimizer = torch.optim.SGD(q_params, 1e-5)
+    q_optimizer = torch.optim.SGD(q_params, args.lrq)
     q_scheduler = torch.optim.lr_scheduler.StepLR(q_optimizer, 50)
 
     # optionally resume from a checkpoint
@@ -395,41 +366,6 @@ def main_worker(gpu, ngpus_per_node, args):
         mixbitops, mixbita, mixbitw))
     for key, value in best_arch.items():
         print('{}: {}'.format(key, value))
-
-    # If warmup is enabled check if pretrained model exists
-    if args.warmup != 0 and not args.warmup_8bit:
-        warmup_weights = ('warmup_' + str(args.warmup) + '.pth.tar')
-        warmup_pretrained_checkpoint = args.data.parent / warmup_weights
-        if warmup_pretrained_checkpoint.exists():
-            print(f"=> loading pretrained model '{warmup_pretrained_checkpoint}'")
-            checkpoint = torch.load(warmup_pretrained_checkpoint)
-            model.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            # arch_optimizer.load_state_dict(checkpoint['arch_optimizer'])
-        else:
-            print(f"=> no pretrained model found at '{warmup_pretrained_checkpoint}'")
-            print(f"=> warmup model for '{args.warmup}' epochs")
-            # Freeze alpha parameters
-            for name, param in model.named_parameters():
-                if 'alpha' in name:
-                    param.requires_grad = False
-            # Warmup model
-            warmup_best_epoch, warmup_best_acc1 = \
-                train(train_loader, val_loader, model, criterion, optimizer, arch_optimizer,
-                      q_optimizer, q_scheduler, args, scope='Warmup')
-
-            print(f'Best Acc@1 {warmup_best_acc1} @ epoch {warmup_best_epoch}')
-
-            # Unfreeze alpha parameters
-            for name, param in model.named_parameters():
-                if 'alpha' in name:
-                    param.requires_grad = True
-    elif args.warmup_8bit:
-        pretrained_checkpoint = args.data.parent.parent / ('warmup_8bit.pth.tar')
-        state_dict_8bit = preprocess_dict(torch.load(pretrained_checkpoint)['state_dict'])
-        model.load_state_dict(state_dict_8bit, strict=False)
-    else:
-        print('=> no warmup')
 
     # Search
     best_epoch, best_acc1, best_acc1_test = \

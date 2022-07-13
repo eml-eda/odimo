@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 strength=$1
-warmup=$2
 path="."
 
 #arch="res8_fp"
@@ -11,7 +10,10 @@ path="."
 #arch="res8_w248a8_chan"
 #arch="res8_w248a8_multiprec"
 #arch="res8_w248a248_multiprec"
-arch=$3
+
+pretrained_model="warmup_fp.pth.tar"
+
+arch=$2
 
 project="hp-nas_ic"
 
@@ -25,14 +27,14 @@ mkdir -p ${path}/${arch}/model_${strength}
 
 export WANDB_MODE=offline
 
-if [[ "$4" == "search" ]]; then
+if [[ "$3" == "search" ]]; then
     echo Search
     split=0.2
     # NB: add --warmup-8bit if needed
     python3 search.py ${path}/${arch}/model_${strength} -a mix${arch} \
-        -d cifar --tiny-test --arch-data-split ${split} \
+        -d cifar10 --tiny-test --arch-data-split ${split} \
         --epochs 500 --step-epoch 50 -b 32 \
-        --warmup ${warmup} --no-warmup-8bit --patience 100 \
+        --ac ${pretrained_model} --patience 100 \
         --lr 0.001 --lra 0.01 --wd 1e-4 \
         --ai same --cd ${strength} --rt weights \
         --seed 42 --gpu 0 \
@@ -40,10 +42,10 @@ if [[ "$4" == "search" ]]; then
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/log_search_${strength}.txt
 fi
 
-if [[ "$5" == "ft" ]]; then
+if [[ "$4" == "ft" ]]; then
     echo Fine-Tune
     python3 main.py ${path}/${arch}/model_${strength} -a quant${arch} \
-        -d cifar --tiny-test --epochs 500 --step-epoch 50 -b 32 --patience 500 \
+        -d cifar10 --tiny-test --epochs 500 --step-epoch 50 -b 32 --patience 500 \
         --lr 0.001 --wd 1e-4 \
         --seed 42 --gpu 0 \
         --ac ${arch}/model_${strength}/arch_model_best.pth.tar -ft \
@@ -53,10 +55,10 @@ else
     # pretrained_model="${arch}/model_${strength}/arch_model_best.pth.tar"
     # pretrained_model="warmup_8bit.pth.tar"
     # pretrained_model="warmup_5bit.pth.tar"
-    pretrained_model="warmup_fp.pth.tar"
+    # pretrained_model="warmup_fp.pth.tar"
     # pretrained_model="warmup_w2a8.pth.tar"
     python3 main.py ${path}/${arch}/model_${strength} -a quant${arch} \
-        -d cifar --tiny-test --epochs 500 --step-epoch 50 -b 32 --patience 500 \
+        -d cifar10 --tiny-test --epochs 500 --step-epoch 50 -b 32 --patience 500 \
         --lr 0.001 --wd 1e-4 \
         --seed 42 --gpu 0 \
         --ac ${pretrained_model} | tee ${path}/${arch}/model_${strength}/log_fromscratch_${strength}.txt

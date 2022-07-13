@@ -17,7 +17,6 @@ import torch.multiprocessing as mp
 import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.transforms as transforms
-import torchvision.datasets as datasets
 import torchvision
 
 import wandb
@@ -28,7 +27,7 @@ model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
                      and callable(models.__dict__[name]))
 
-parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
+parser = argparse.ArgumentParser(description='PyTorch Cifar Training')
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
 parser.add_argument('--tiny-test', action='store_true',
@@ -42,7 +41,7 @@ parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 # MR
 parser.add_argument('-d', '--dataset', default='None', type=str,
-                    help='cifar or imagenet')
+                    help='cifar10 or cifar100')
 parser.add_argument('--epochs', default=500, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--patience', default=20, type=int, metavar='N',
@@ -63,6 +62,8 @@ parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
 parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
                     metavar='W', help='weight decay (default: 1e-4)',
                     dest='weight_decay')
+parser.add_argument('--lrq', '--learning-rate-q', default=1e-5, type=float,
+                    metavar='LR', help='initial q learning rate', dest='lrq')
 parser.add_argument('-p', '--print-freq', default=100, type=int,
                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
@@ -182,46 +183,9 @@ def main_worker(gpu, ngpus_per_node, args):
                                 world_size=args.world_size, rank=args.rank)
 
     # MR
-    if 'imagenet' in args.dataset:
-        num_classes = 1000
-
-        traindir = args.data.parent.parent / 'imagenet' / 'train'
-        valdir = args.data.parent.parent / 'imagenet' / 'val'
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                         std=[0.229, 0.224, 0.225])
-
-        if 'inception' in args.arch:
-            crop_size, short_size = 299, 342
-        else:
-            crop_size, short_size = 224, 256
-        train_dataset = datasets.ImageFolder(
-            traindir,
-            transforms.Compose([
-                transforms.RandomResizedCrop(crop_size),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                normalize,
-            ]))
-
-        if args.distributed:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-        else:
-            train_sampler = None
-
-        train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
-            num_workers=args.workers, pin_memory=True, sampler=train_sampler)
-
-        val_loader = torch.utils.data.DataLoader(
-            datasets.ImageFolder(valdir, transforms.Compose([
-                transforms.Resize(short_size),
-                transforms.CenterCrop(crop_size),
-                transforms.ToTensor(),
-                normalize,
-            ])),
-            batch_size=args.batch_size, shuffle=False,
-            num_workers=args.workers, pin_memory=True)
-    elif 'cifar' in args.dataset:
+    if 'cifar100' in args.dataset:
+        raise NotImplementedError
+    elif 'cifar10' in args.dataset:
         num_classes = 10
 
         transform_train = transforms.Compose([
@@ -236,10 +200,11 @@ def main_worker(gpu, ngpus_per_node, args):
             # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
         ])
 
-        if args.distributed:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-        else:
-            train_sampler = None
+        # if args.distributed:
+        #     train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+        # else:
+        #     train_sampler = None
+        train_sampler = None
 
         data_dir = args.data.parent.parent / 'data'
 
@@ -329,7 +294,7 @@ def main_worker(gpu, ngpus_per_node, args):
         params, args.lr, weight_decay=args.weight_decay)
 
     if q_params:
-        q_optimizer = torch.optim.SGD(q_params, 1e-5)
+        q_optimizer = torch.optim.SGD(q_params, args.lrq)
         q_scheduler = torch.optim.lr_scheduler.StepLR(q_optimizer, 50)
     else:
         q_optimizer = None

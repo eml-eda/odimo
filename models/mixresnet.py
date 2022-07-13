@@ -1,7 +1,13 @@
-import torch.nn as nn
 import math
+from pathlib import Path
+
+import torch.nn as nn
+
+from . import utils
 from . import quant_module as qm
 from . import hw_models as hw
+from .quant_resnet import quantres8_fp_foldbn
+
 
 # DJP
 __all__ = [
@@ -9,17 +15,17 @@ __all__ = [
 ]
 
 
-def conv3x3(conv_func, hw_model, in_planes, out_planes,
+def conv3x3(conv_func, hw_model, in_planes, out_planes, bias=False,
             stride=1, groups=1, fix_qtz=False, **kwargs):
     "3x3 convolution with padding"
     if conv_func != nn.Conv2d:
         return conv_func(hw_model, in_planes, out_planes,
                          kernel_size=3, groups=groups, stride=stride,
-                         padding=1, bias=False, fix_qtz=fix_qtz, **kwargs)
+                         padding=1, bias=bias, fix_qtz=fix_qtz, **kwargs)
     else:
         return conv_func(in_planes, out_planes,
                          kernel_size=3, groups=groups, stride=stride,
-                         padding=1, bias=False, **kwargs)
+                         padding=1, bias=bias, **kwargs)
 
 
 # MR
@@ -31,11 +37,11 @@ def fc(conv_func, hw_model, in_planes, out_planes, stride=1, groups=1, search_fc
 
 # MR
 class Backbone(nn.Module):
-    def __init__(self, conv_func, hw_model, input_size, bnaff, **kwargs):
+    def __init__(self, conv_func, hw_model, input_size, bn, **kwargs):
         super().__init__()
-        self.bb_1 = BasicBlockGumbel(conv_func, hw_model, 16, 16, stride=1, **kwargs)
-        self.bb_2 = BasicBlockGumbel(conv_func, hw_model, 16, 32, stride=2, **kwargs)
-        self.bb_3 = BasicBlockGumbel(conv_func, hw_model, 32, 64, stride=2, **kwargs)
+        self.bb_1 = BasicBlockGumbel(conv_func, hw_model, 16, 16, stride=1, bn=bn, **kwargs)
+        self.bb_2 = BasicBlockGumbel(conv_func, hw_model, 16, 32, stride=2, bn=bn, **kwargs)
+        self.bb_3 = BasicBlockGumbel(conv_func, hw_model, 32, 64, stride=2, bn=bn, **kwargs)
         self.pool = nn.AvgPool2d(kernel_size=8)
 
     def forward(self, x, temp, is_hard):
@@ -48,17 +54,24 @@ class Backbone(nn.Module):
 
 class BasicBlockGumbel(nn.Module):
     def __init__(self, conv_func, hw_model, inplanes, planes,
-                 stride=1, downsample=None, bnaff=True, **kwargs):
+                 stride=1, downsample=None, bn=True, **kwargs):
+        self.bn = bn
+        self.use_bias = not bn
         super().__init__()
-        self.conv1 = conv3x3(conv_func, hw_model, inplanes, planes, stride, **kwargs)
-        self.bn1 = nn.BatchNorm2d(planes, affine=bnaff)
-        self.conv2 = conv3x3(conv_func, hw_model, planes, planes, **kwargs)
-        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv1 = conv3x3(conv_func, hw_model, inplanes, planes,
+                             stride=stride, bias=self.use_bias, **kwargs)
+        if bn:
+            self.bn1 = nn.BatchNorm2d(planes, affine=bn)
+        self.conv2 = conv3x3(conv_func, hw_model, planes, planes,
+                             bias=self.use_bias, **kwargs)
+        if bn:
+            self.bn2 = nn.BatchNorm2d(planes)
         if stride != 1 or inplanes != planes:
             self.downsample = conv_func(hw_model, inplanes, planes,
-                                        kernel_size=1, stride=stride, groups=1, bias=False,
+                                        kernel_size=1, stride=stride, groups=1, bias=self.use_bias,
                                         **kwargs)
-            self.bn_ds = nn.BatchNorm2d(planes)
+            if bn:
+                self.bn_ds = nn.BatchNorm2d(planes)
         else:
             self.downsample = None
 
@@ -69,13 +82,16 @@ class BasicBlockGumbel(nn.Module):
             residual = x
 
         out = self.conv1(x, temp, is_hard)
-        out = self.bn1(out)
+        if self.bn:
+            out = self.bn1(out)
         out = self.conv2(out, temp, is_hard)
-        out = self.bn2(out)
+        if self.bn:
+            out = self.bn2(out)
 
         if self.downsample is not None:
             residual = self.downsample(residual, temp, is_hard)
-            residual = self.bn_ds(residual)
+            if self.bn:
+                residual = self.bn_ds(residual)
 
         out += residual
 
@@ -84,7 +100,7 @@ class BasicBlockGumbel(nn.Module):
 
 class TinyMLResNet(nn.Module):
     def __init__(self, conv_func, hw_model,
-                 search_fc=None, input_size=32, num_classes=10, bnaff=True, **kwargs):
+                 search_fc=None, input_size=32, num_classes=10, bn=True, **kwargs):
         if 'abits' in kwargs:
             print('abits: {}'.format(kwargs['abits']))
         if 'wbits' in kwargs:
@@ -98,13 +114,17 @@ class TinyMLResNet(nn.Module):
             self.search_fc = search_fc
         else:
             self.search_fc = False
+        self.bn = bn
+        self.use_bias = not bn
         super().__init__()
         self.gumbel = kwargs.get('gumbel', False)
 
         # Model
-        self.conv1 = conv3x3(conv_func, hw_model, 3, 16, stride=1, groups=1, **kwargs)
-        self.bn1 = nn.BatchNorm2d(16)
-        self.backbone = Backbone(conv_func, hw_model, input_size, bnaff, **kwargs)
+        self.conv1 = conv3x3(conv_func, hw_model, 3, 16, stride=1, groups=1,
+                             bias=self.use_bias, **kwargs)
+        if bn:
+            self.bn1 = nn.BatchNorm2d(16)
+        self.backbone = Backbone(conv_func, hw_model, input_size, bn, **kwargs)
         self.fc = fc(conv_func, hw_model, 64, num_classes, search_fc=self.search_fc, **kwargs)
 
         # Initialize weights
@@ -120,7 +140,8 @@ class TinyMLResNet(nn.Module):
 
     def forward(self, x, temp, is_hard):
         x = self.conv1(x, temp, is_hard)
-        x = self.bn1(x)
+        if self.bn:
+            x = self.bn1(x)
 
         x = self.backbone(x, temp, is_hard)
 
@@ -168,12 +189,33 @@ class TinyMLResNet(nn.Module):
 
 
 # MR
-def mixres8_diana5(**kwargs):
+def mixres8_diana5(arch_cfg_path, **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
     # NB: 2 bits is equivalent for ternary weights!!
-    return TinyMLResNet(
+    search_model = TinyMLResNet(
         qm.MultiPrecActivConv2d, hw.diana(analog_speedup=5.),
-        search_fc='multi', wbits=[2, 8], abits=[8],
+        search_fc='multi', wbits=[2, 8], abits=[8], bn=False,
         share_weight=True, **kwargs)
+
+    # Get folded pretrained model
+    folded_fp_model = quantres8_fp_foldbn(arch_cfg_path)
+    folded_state_dict = folded_fp_model.state_dict()
+
+    # Delete folded model
+    del folded_fp_model
+
+    # Translate folded state dict in a format compatible with searchable layers
+    search_state_dict = utils.fpfold_to_q(folded_state_dict)
+    search_model.load_state_dict(search_state_dict, strict=False)
+
+    # Init quantization scale param
+    utils.init_scale_param(search_model)
+
+    return search_model
 
 
 # MR

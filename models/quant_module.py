@@ -468,7 +468,7 @@ class QuantMultiPrecConv2d(nn.Module):
 
     def __init__(self, inplane, outplane, bits, **kwargs):
         super().__init__()
-        self.abits = kwargs.pop('abits', 8)
+        self.abits = kwargs.pop('abits', [8])
         if type(bits) == int:
             self.bits = [bits]
         else:
@@ -649,7 +649,8 @@ class MixQuantPaCTActiv(nn.Module):
             self.mix_activ.append(LearnedClippedLinearQuantization(num_bits=bit))
 
     def forward(self, input, temp, is_hard):
-        outs = []
+        outs = list()
+        act_scale = list()
         # self.alpha_activ = torch.nn.Parameter(clamp(self.alpha_activ,-100,+100))
         if not self.gumbel:
             sw = F.softmax(self.alpha_activ/temp, dim=0)
@@ -658,8 +659,9 @@ class MixQuantPaCTActiv(nn.Module):
             sw = F.gumbel_softmax(self.alpha_activ, tau=temp, hard=is_hard, dim=0)
         for i, branch in enumerate(self.mix_activ):
             outs.append(branch(input) * sw[i])
+            act_scale.append(branch.clip_val)
         activ = sum(outs)
-        return activ
+        return activ, torch.stack(act_scale)
 
 
 # DJP
@@ -750,6 +752,7 @@ class SharedMultiPrecConv2d(nn.Module):
 
     def __init__(self, inplane, outplane, bits, gumbel=False, **kwargs):
         super().__init__()
+        self.abits = kwargs.pop('abits', [8])
         self.bits = bits
         self.gumbel = gumbel
         self.cout = outplane
@@ -784,10 +787,19 @@ class SharedMultiPrecConv2d(nn.Module):
 
         # Quantizer
         self.mix_weight = nn.ModuleList()
+        self.mix_bias = nn.ModuleList()
         self.train_scale_param = kwargs.pop('train_scale_param', True)
         for bit in self.bits:
-            self.mix_weight.append(FQConvWeightQuantization(
-                outplane, k_size, num_bits=bit, train_scale_param=self.train_scale_param))
+            self.mix_weight.append(
+                FQConvWeightQuantization(
+                    outplane, k_size,
+                    num_bits=bit,
+                    train_scale_param=self.train_scale_param))
+            self.mix_bias.append(
+                FQConvBiasQuantization(
+                    outplane,
+                    num_bits=bit,
+                    abit=self.abits))
 
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
 
@@ -795,8 +807,9 @@ class SharedMultiPrecConv2d(nn.Module):
             self.register_buffer(
                 'sw_buffer', torch.zeros(self.alpha_weight.shape, dtype=torch.float))
 
-    def forward(self, input, temp, is_hard):
-        mix_quant_weight = []
+    def forward(self, input, temp, is_hard, act_scale=None):
+        mix_quant_weight = list()
+        mix_quant_bias = list()
         if not self.gumbel:
             sw = F.softmax(self.alpha_weight/temp, dim=0)
         else:
@@ -812,20 +825,23 @@ class SharedMultiPrecConv2d(nn.Module):
         bias = getattr(conv, 'bias', None)
         for i, bit in enumerate(self.bits):
             quant_weight = self.mix_weight[i](weight)
+            w_scale = self.mix_weight[i].scale_param
             scaled_quant_weight = quant_weight * sw[i].view((self.cout, 1, 1, 1))
             mix_quant_weight.append(scaled_quant_weight)
-
-        # Quantize bias if present
-        if bias is not None:
-            quant_bias = _bias_sym_min_max_quantize.apply(bias, 32)
+            if bias is not None:
+                quant_bias = self.mix_bias[i](bias, w_scale, act_scale)
+                scaled_quant_bias = quant_bias * sw[i].view(self.cout)
+                mix_quant_bias.append(scaled_quant_bias)
+        if mix_quant_bias:
+            mix_quant_bias = sum(mix_quant_bias)
         else:
-            quant_bias = bias
+            mix_quant_bias = None
 
         # Obtain multi-precision kernel
         mix_quant_weight = sum(mix_quant_weight)
         # Compute conv
         out = F.conv2d(
-            input, mix_quant_weight, quant_bias, conv.stride,
+            input, mix_quant_weight, mix_quant_bias, conv.stride,
             conv.padding, conv.dilation, conv.groups)
 
         return out
@@ -860,7 +876,7 @@ class MultiPrecActivConv2d(nn.Module):
         assert share_weight
         if not self.fc:
             self.mix_weight = SharedMultiPrecConv2d(
-                inplane, outplane, self.wbits, gumbel=self.gumbel, **kwargs)
+                inplane, outplane, self.wbits, abits=abits, gumbel=self.gumbel, **kwargs)
         else:
             # If the layer is fc we can use:
             if self.fc == 'fixed':
@@ -873,7 +889,7 @@ class MultiPrecActivConv2d(nn.Module):
             elif self.fc == 'multi':
                 # Multi-precision search
                 self.mix_weight = SharedMultiPrecConv2d(
-                    inplane, outplane, wbits, gumbel=self.gumbel, **kwargs)
+                    inplane, outplane, wbits, abits=abits, gumbel=self.gumbel, **kwargs)
             else:
                 raise ValueError(f"Unknown fc search, possible values are {self.search_types}")
 
@@ -896,10 +912,11 @@ class MultiPrecActivConv2d(nn.Module):
         tmp = torch.tensor(self.filter_size * in_shape[-1] * in_shape[-2], dtype=torch.float)
         self.size_product.copy_(tmp)
         if not self.fix_qtz:
-            out = self.mix_activ(input, temp, is_hard)
+            out, act_scale = self.mix_activ(input, temp, is_hard)
         else:
             out = _channel_asym_min_max_quantize.apply(input, 8)
-        out = self.mix_weight(out, temp, is_hard)
+            act_scale = None
+        out = self.mix_weight(out, temp, is_hard, act_scale)
         return out
 
     def complexity_loss(self):
