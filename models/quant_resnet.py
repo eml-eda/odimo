@@ -930,7 +930,7 @@ def quantres8_diana(arch_cfg_path, **kwargs):
     ##
 
     model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
-                         archws, archas, qtz_fc='multi', **kwargs)
+                         archws, archas, qtz_fc='multi', bn=False, **kwargs)
 
     if kwargs['fine_tune']:
         # Load all weights
