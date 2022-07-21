@@ -45,7 +45,7 @@
             "args": [
                 "res8_fp/model_debug",
                 "-a", "quantres8_fp",
-                "-d", "cifar",
+                "-d", "cifar10",
                 "--tiny-test",
                 "--epochs", "500",
                 "--step-epoch", "50",
