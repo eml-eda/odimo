@@ -17,14 +17,17 @@ __all__ = [
     'quantres8_w8a8_foldbn',
     'quantres8_w8a8_pretrained', 'quantres8_w8a8_nobn_pretrained',
     'quantres20_w8a8', 'quantres20_w8a8_foldbn',
+    'quantres8_w8a7_foldbn',
     'quantres8_w5a8',
     'quantres8_w2a8', 'quantres8_w2a8_nobn',
     'quantres8_w2a8_pretrained', 'quantres8_w2a8_nobn_pretrained',
     'quantres20_w2a8', 'quantres20_w2a8_foldbn',
     'quantres8_w2a8_true', 'quantres8_w2a8_true_nobn',
     'quantres8_w2a8_foldbn', 'quantres8_w2a8_foldbn_test',
+    'quantres8_w2a7_foldbn',
     'quantres8_w2a8_true_pretrained', 'quantres8_w2a8_true_nobn_pretrained',
     'quantres8_w2a8_true_foldbn',
+    'quantres8_w2a7_true_foldbn',
     'quantres8_diana',
     'quantres8_diana5', 'quantres8_diana10', 'quantres8_diana100',
 ]
@@ -552,6 +555,41 @@ def quantres20_w8a8_foldbn(arch_cfg_path, **kwargs):
     return q_model
 
 
+def quantres8_w8a7_foldbn(arch_cfg_path, **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[7]] * 10, [[8]] * 10
+    s_up = kwargs.pop('analog_speedup', 5.)
+    fp_model = TinyMLResNet(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                            archws, archas, qtz_fc='multi', **kwargs)
+    q_model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
+                           archws, archas, qtz_fc='multi', bn=False, **kwargs)
+
+    # Load pretrained fp state_dict
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_model.load_state_dict(fp_state_dict)
+    # Fold bn
+    fp_model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(fp_model)
+    folded_state_dict = folded_model.state_dict()
+
+    # Delete fp and folded model
+    del fp_model, folded_model
+
+    # Translate folded fp state dict in a format compatible with quantized layers
+    q_state_dict = utils.fpfold_to_q(folded_state_dict)
+    # Load folded fp state dict in quantized model
+    q_model.load_state_dict(q_state_dict, strict=False)
+
+    # Init scale param
+    utils.init_scale_param(q_model)
+
+    return q_model
+
+
 def quantres8_w5a8(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 10, [[5]] * 10
     # Set first and last layer weights precision to 8bit
@@ -790,6 +828,44 @@ def quantres8_w2a8_foldbn_test(arch_cfg_path, **kwargs):
     return q_model
 
 
+def quantres8_w2a7_foldbn(arch_cfg_path, **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[7]] * 10, [[2]] * 10
+    # Set first and last layer weights precision to 8bit
+    archws[0] = [8]
+    archws[-1] = [8]
+    s_up = kwargs.pop('analog_speedup', 5.)
+    fp_model = TinyMLResNet(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                            archws, archas, qtz_fc='multi', **kwargs)
+    q_model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
+                           archws, archas, qtz_fc='multi', bn=False, **kwargs)
+
+    # Load pretrained fp state_dict
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_model.load_state_dict(fp_state_dict)
+    # Fold bn
+    fp_model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(fp_model)
+    folded_state_dict = folded_model.state_dict()
+
+    # Delete fp and folded model
+    del fp_model, folded_model
+
+    # Translate folded fp state dict in a format compatible with quantized layers
+    q_state_dict = utils.fpfold_to_q(folded_state_dict)
+    # Load folded fp state dict in quantized model
+    q_model.load_state_dict(q_state_dict, strict=False)
+
+    # Init scale param
+    utils.init_scale_param(q_model)
+
+    return q_model
+
+
 def quantres8_w2a8_true(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 10, [[2]] * 10
     s_up = kwargs.pop('analog_speedup', 5.)
@@ -901,6 +977,41 @@ def quantres8_w2a8_true_foldbn(arch_cfg_path, **kwargs):
     return q_model
 
 
+def quantres8_w2a7_true_foldbn(arch_cfg_path, **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[7]] * 10, [[2]] * 10
+    s_up = kwargs.pop('analog_speedup', 5.)
+    fp_model = TinyMLResNet(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                            archws, archas, qtz_fc='multi', **kwargs)
+    q_model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
+                           archws, archas, qtz_fc='multi', bn=False, **kwargs)
+
+    # Load pretrained state_dict
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_model.load_state_dict(fp_state_dict)
+    # Fold bn
+    fp_model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(fp_model)
+    folded_state_dict = folded_model.state_dict()
+
+    # Delete fp and folded model
+    del fp_model, folded_model
+
+    # Translate folded fp state dict in a format compatible with quantized layers
+    q_state_dict = utils.fpfold_to_q(folded_state_dict)
+    # Load folded fp state dict in quantized model
+    q_model.load_state_dict(q_state_dict, strict=False)
+
+    # Init scale param
+    utils.init_scale_param(q_model)
+
+    return q_model
+
+
 def quantres8_diana5(arch_cfg_path, **kwargs):
     return quantres8_diana(arch_cfg_path, **kwargs)
 
@@ -916,7 +1027,7 @@ def quantres8_diana100(arch_cfg_path, **kwargs):
 # ToDO
 # qtz_fc: None or 'fixed' or 'mixed' or 'multi'
 def quantres8_diana(arch_cfg_path, **kwargs):
-    wbits, abits = [2, 8], [8]
+    wbits, abits = [2, 8], [7]
 
     # ## This block of code is only necessary to comply with the underlying EdMIPS code ##
     best_arch, worst_arch = _load_arch_multi_prec(arch_cfg_path)
