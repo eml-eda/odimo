@@ -894,19 +894,28 @@ class MultiPrecActivConv2d(nn.Module):
                 raise ValueError(f"Unknown fc search, possible values are {self.search_types}")
 
         # complexities
-        stride = kwargs['stride'] if 'stride' in kwargs else 1
+        self.stride = kwargs['stride'] if 'stride' in kwargs else 1
         if isinstance(kwargs['kernel_size'], tuple):
             kernel_size = kwargs['kernel_size'][0] * kwargs['kernel_size'][1]
+            self.k_x = kwargs['kernel_size'][0]
+            self.k_y = kwargs['kernel_size'][1]
         else:
             kernel_size = kwargs['kernel_size'] * kwargs['kernel_size']
+            self.k_x = kwargs['kernel_size']
+            self.k_y = kwargs['kernel_size']
+        self.ch_in = inplane
+        self.out_x = None
+        self.out_y = None
         self.param_size = inplane * outplane * kernel_size / kwargs['groups'] * 1e-6
-        self.filter_size = self.param_size / float(stride ** 2.0)
+        self.filter_size = self.param_size / float(self.stride ** 2.0)
         self.register_buffer('size_product', torch.tensor(0, dtype=torch.float))
         self.register_buffer('memory_size', torch.tensor(0, dtype=torch.float))
 
     def forward(self, input, temp, is_hard):
         self.temp = temp
         in_shape = input.shape
+        self.out_x = in_shape[-2] / float(self.stride)
+        self.out_y = in_shape[-1] / float(self.stride)
         tmp = torch.tensor(in_shape[1] * in_shape[2] * in_shape[3] * 1e-3, dtype=torch.float)
         self.memory_size.copy_(tmp)
         tmp = torch.tensor(self.filter_size * in_shape[-1] * in_shape[-2], dtype=torch.float)
@@ -920,9 +929,19 @@ class MultiPrecActivConv2d(nn.Module):
         return out
 
     def complexity_loss(self):
-        cout = self.mix_weight.cout
+        # cout = self.mix_weight.cout
         abits = self.mix_activ.bits
         wbits = self.mix_weight.bits
+
+        # Define dict where shapes informations needed to model accelerators perf
+        conv_shape = {
+            'ch_in': self.ch_in,
+            'k_x': self.k_x,
+            'k_y': self.k_y,
+            'out_x': self.out_x,
+            'out_y': self.out_y,
+            }
+
         if not self.fix_qtz:
             s_a = F.softmax(self.mix_activ.alpha_activ/self.temp, dim=0)
         else:  # Layer with fixed quantization activations at the maximum available bit width
@@ -932,15 +951,16 @@ class MultiPrecActivConv2d(nn.Module):
 
         cycles = []
         cycle = 0
-        # TODO: Check if doable wout for and if yes if is faster
+        # TODO: Check if doable w/out for and if yes if is faster
         for i, bit in enumerate(wbits):
             ch_eff = sum(s_w[i])
+            conv_shape['ch_out'] = ch_eff
             if bit == 2:  # Analog accelerator
                 # cycle = sum(s_w[i]) / self.hw_model('analog')
-                cycle = self.hw_model(ch_eff, 'analog')
+                cycle = self.hw_model('analog', **conv_shape)
             else:  # Digital accelerator
                 # cycle = sum(s_w[i]) / self.hw_model('digital')
-                cycle = self.hw_model(ch_eff, 'digital')
+                cycle = self.hw_model('digital', **conv_shape)
             cycles.append(cycle)
 
         # Build tensor of cycles
@@ -950,8 +970,8 @@ class MultiPrecActivConv2d(nn.Module):
         s_c = F.softmax(t_cycles, dim=0)
         t_c = torch.dot(s_c, t_cycles)
 
-        return t_c * self.size_product.item() / cout
-        # return torch.max(torch.tensor(cycles)) * self.size_product.item() / cout
+        return t_c * 1e-6  # [M]Cycles
+        # return torch.max(torch.stack(cycles))
 
     def fetch_best_arch(self, layer_idx):
         size_product = float(self.size_product.cpu().numpy())
