@@ -6,3 +6,4 @@ log*
 *egg-info
 build
 dist
+*.png
