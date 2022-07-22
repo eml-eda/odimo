@@ -6,6 +6,9 @@
 # TODO: Understand how model changes for deptwhise conv.
 #       At this time groups is not taken into account!
 
+import math
+import torch
+
 MPIC = {
     2: {2: 6.5, 4: 4., 8: 2.2},
     4: {2: 3.9, 4: 3.5, 8: 2.1},
@@ -17,13 +20,66 @@ DIANA_NAIVE = {
     'analog': 5.0,  # Default SpeedUp
 }
 
+F = 260000000  # Hz
+
+
+class ComputeOxUnrollSTE(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, ch_eff, ch_in, k_x, k_y):
+        device = ch_eff.device
+        ox_unroll_list = [1, 2, 4, 8]
+        ox_unroll = torch.as_tensor(ox_unroll_list, device=device)
+        ch_in_unroll = min(64, ch_in)
+        mask_out = ox_unroll * ch_eff <= 512
+        mask_in = (ox_unroll + k_x - 1) * ch_in_unroll * k_y <= 1152
+        mask = torch.logical_and(mask_out, mask_in)
+        mask[0] = True
+        return ox_unroll[mask][-1]
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output, None, None, None
+
+
+class FloorSTE(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, ch, N):
+        return torch.floor((ch + N - 1) / N)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output, None
+
 
 def _analog_cycles(**kwargs):
-    raise NotImplementedError
+    ch_in = kwargs['ch_in']
+    ch_eff = kwargs['ch_out']
+    k_x = kwargs['k_x']
+    k_y = kwargs['k_y']
+    out_x = kwargs['out_x']
+    out_y = kwargs['out_y']
+    ox_unroll_base = ComputeOxUnrollSTE.apply(ch_eff, ch_in, k_x, k_y)
+    cycles_comp = FloorSTE.apply(ch_eff, 512) * _floor(ch_in, 128) * out_x * out_y / ox_unroll_base
+    cycles_weights = 4 * 2 * 1152
+    cycles_comp_norm = cycles_comp * 70 / (1000000000 / F)
+    return cycles_weights + cycles_comp_norm
 
 
 def _digital_cycles(**kwargs):
-    raise NotImplementedError
+    ch_in = kwargs['ch_in']
+    ch_eff = kwargs['ch_out']
+    k_x = kwargs['k_x']
+    k_y = kwargs['k_y']
+    out_x = kwargs['out_x']
+    out_y = kwargs['out_y']
+    cycles = FloorSTE.apply(ch_eff, 16) * ch_in * _floor(out_x, 16) * out_y * k_x * k_y
+    cycles_load_store = out_x * out_y * (ch_eff + ch_in) / 8
+
+    return cycles + cycles_load_store
+
+
+def _floor(ch, N):
+    return math.floor((ch + N - 1) / N)
 
 
 def mpic_model(a_bit, w_bit):

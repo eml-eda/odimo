@@ -973,7 +973,7 @@ class MultiPrecActivConv2d(nn.Module):
         return t_c * 1e-6  # [M]Cycles
         # return torch.max(torch.stack(cycles))
 
-    def fetch_best_arch(self, layer_idx):
+    def fetch_best_arch(self, layer_idx):  # TODO: Refactor for new HW Models
         size_product = float(self.size_product.cpu().numpy())
         memory_size = float(self.memory_size.cpu().numpy())
         if not self.fix_qtz:

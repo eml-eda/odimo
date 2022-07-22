@@ -26,6 +26,11 @@ import wandb
 
 import models as models
 
+# Uncomment to disable debug features and to go faster
+# torch.autograd.set_detect_anomaly(False)
+# torch.autograd.profiler.profile(False)
+# torch.autograd.profiler.emit_nvtx(False)
+
 # Simply parse all models' names contained in models directory
 model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")

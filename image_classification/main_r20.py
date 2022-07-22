@@ -23,6 +23,11 @@ import wandb
 
 import models
 
+# Uncomment to disable debug features and to go faster
+# torch.autograd.set_detect_anomaly(False)
+# torch.autograd.profiler.profile(False)
+# torch.autograd.profiler.emit_nvtx(False)
+
 model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
                      and callable(models.__dict__[name]))
