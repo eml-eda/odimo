@@ -932,11 +932,15 @@ class MultiPrecActivConv2d(nn.Module):
 
         cycles = []
         cycle = 0
+        # TODO: Check if doable wout for and if yes if is faster
         for i, bit in enumerate(wbits):
+            ch_eff = sum(s_w[i])
             if bit == 2:  # Analog accelerator
-                cycle = sum(s_w[i]) / self.hw_model('analog')
+                # cycle = sum(s_w[i]) / self.hw_model('analog')
+                cycle = self.hw_model(ch_eff, 'analog')
             else:  # Digital accelerator
-                cycle = sum(s_w[i]) / self.hw_model('digital')
+                # cycle = sum(s_w[i]) / self.hw_model('digital')
+                cycle = self.hw_model(ch_eff, 'digital')
             cycles.append(cycle)
 
         # Build tensor of cycles

@@ -9,9 +9,9 @@ MPIC = {
     8: {2: 2.5, 4: 2.3, 8: 2.1},
 }
 
-DIANA = {
+DIANA_NAIVE = {
     'digital': 1.0,
-    'analog': 5.0,
+    'analog': 5.0,  # Default SpeedUp
 }
 
 
@@ -19,11 +19,12 @@ def mpic_model(a_bit, w_bit):
     return MPIC[a_bit][w_bit]
 
 
-def diana(analog_speedup=5.):
-    def diana_model(accelerator):
-        DIANA['analog'] = float(analog_speedup)
-        if accelerator in DIANA.keys():
-            return DIANA[accelerator]
+def diana_naive(analog_speedup=5.):
+
+    def diana_model(ch, accelerator):
+        DIANA_NAIVE['analog'] = float(analog_speedup)  # Update SpeedUp
+        if accelerator in DIANA_NAIVE.keys():
+            return ch / DIANA_NAIVE[accelerator]
         else:
             raise ValueError(f'Unknown accelerator: {accelerator}')
 
