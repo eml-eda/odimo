@@ -29,7 +29,7 @@ class ComputeOxUnrollSTE(torch.autograd.Function):
         device = ch_eff.device
         ox_unroll_list = [1, 2, 4, 8]
         ox_unroll = torch.as_tensor(ox_unroll_list, device=device)
-        ch_in_unroll = min(64, ch_in)
+        ch_in_unroll = max(64, ch_in)
         mask_out = ox_unroll * ch_eff <= 512
         mask_in = (ox_unroll + k_x - 1) * ch_in_unroll * k_y <= 1152
         mask = torch.logical_and(mask_out, mask_in)

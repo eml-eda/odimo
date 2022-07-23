@@ -51,15 +51,16 @@ if __name__ == '__main__':
     analog_cyc = []
     digital_cyc = []
     ox_unroll = []
-    ch_max = 256
+    ch_in = 32
+    ch_max = 128
     for ch in np.arange(1, ch_max):
-        MAC_cycles_digital, cycles_digital = digital_cycles(32, ch, 16, 16, 3, 3)
-        MAC_cycles_analog, cycles_analog = analog_cycles(32, ch, 16, 16, 3, 3)
+        MAC_cycles_digital, cycles_digital = digital_cycles(ch_in, ch, 16, 16, 3, 3)
+        MAC_cycles_analog, cycles_analog = analog_cycles(ch_in, ch, 16, 16, 3, 3)
         analog.append(MAC_cycles_analog)
         digital_cyc.append(cycles_digital)
         analog_cyc.append(cycles_analog)
         digital.append(MAC_cycles_digital)
-        ox_unroll.append(_ox_unroll_base(32, ch, 3, 3))
+        ox_unroll.append(_ox_unroll_base(ch_in, ch, 3, 3))
     plt.plot(np.arange(1, ch_max), analog, label="analog")
     plt.plot(np.arange(1, ch_max), digital, label="digital")
     plt.legend()

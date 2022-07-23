@@ -11,7 +11,8 @@ from .quant_resnet import quantres8_fp_foldbn
 
 # DJP
 __all__ = [
-    'mixres8_diana5', 'mixres8_diana10', 'mixres8_diana100',
+    'mixres8_diana_naive5', 'mixres8_diana_naive10', 'mixres8_diana_naive100',
+    'mixres8_diana',
 ]
 
 
@@ -158,7 +159,7 @@ class TinyMLResNet(nn.Module):
         loss = 0
         for m in self.modules():
             if isinstance(m, self.conv_func):
-                loss += m.complexity_loss()
+                loss = loss + m.complexity_loss()
         return loss
 
     def fetch_best_arch(self):
@@ -189,19 +190,19 @@ class TinyMLResNet(nn.Module):
 
 
 # MR
-def mixres8_diana5(arch_cfg_path, **kwargs):
+def mixres8_diana_naive5(arch_cfg_path, **kwargs):
     search_model = mixres8_diana_naive(arch_cfg_path, 5., **kwargs)
     return search_model
 
 
 # MR
-def mixres8_diana10(arch_cfg_path, **kwargs):
+def mixres8_diana_naive10(arch_cfg_path, **kwargs):
     search_model = mixres8_diana_naive(arch_cfg_path, 10., **kwargs)
     return search_model
 
 
 # MR
-def mixres8_diana100(arch_cfg_path, **kwargs):
+def mixres8_diana_naive100(arch_cfg_path, **kwargs):
     search_model = mixres8_diana_naive(arch_cfg_path, 100., **kwargs)
     return search_model
 
@@ -215,7 +216,36 @@ def mixres8_diana_naive(arch_cfg_path, s_up, **kwargs):
     # NB: 2 bits is equivalent for ternary weights!!
     search_model = TinyMLResNet(
         qm.MultiPrecActivConv2d, hw.diana_naive(analog_speedup=s_up),
-        search_fc='multi', wbits=[2, 8], abits=[8], bn=False,
+        search_fc='multi', wbits=[2, 8], abits=[7], bn=False,
+        share_weight=True, **kwargs)
+
+    # Get folded pretrained model
+    folded_fp_model = quantres8_fp_foldbn(arch_cfg_path)
+    folded_state_dict = folded_fp_model.state_dict()
+
+    # Delete folded model
+    del folded_fp_model
+
+    # Translate folded state dict in a format compatible with searchable layers
+    search_state_dict = utils.fpfold_to_q(folded_state_dict)
+    search_model.load_state_dict(search_state_dict, strict=False)
+
+    # Init quantization scale param
+    utils.init_scale_param(search_model)
+
+    return search_model
+
+
+def mixres8_diana(arch_cfg_path, **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    # NB: 2 bits is equivalent for ternary weights!!
+    search_model = TinyMLResNet(
+        qm.MultiPrecActivConv2d, hw.diana(),
+        search_fc='multi', wbits=[2, 8], abits=[7], bn=False,
         share_weight=True, **kwargs)
 
     # Get folded pretrained model

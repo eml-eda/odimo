@@ -360,17 +360,17 @@ def main_worker(gpu, ngpus_per_node, args):
         validate(val_loader, model, criterion, args)
         return
 
-    print('========= initial architecture =========')
-    if hasattr(model, 'module'):
-        best_arch, bitops, bita, bitw, mixbitops, mixbita, mixbitw = model.module.fetch_best_arch()
-    else:
-        best_arch, bitops, bita, bitw, mixbitops, mixbita, mixbitw = model.fetch_best_arch()
-    print('best model with bitops: {:.3f}M, bita: {:.3f}K, bitw: {:.3f}M'.format(
-        bitops, bita, bitw))
-    print('expected model with bitops: {:.3f}M, bita: {:.3f}K, bitw: {:.3f}M'.format(
-        mixbitops, mixbita, mixbitw))
-    for key, value in best_arch.items():
-        print('{}: {}'.format(key, value))
+    # print('========= initial architecture =========')
+    # if hasattr(model, 'module'):
+    #    best_arch, bitops, bita, bitw, mixbitops, mixbita, mixbitw = model.module.fetch_best_arch()
+    # else:
+    #     best_arch, bitops, bita, bitw, mixbitops, mixbita, mixbitw = model.fetch_best_arch()
+    # print('best model with bitops: {:.3f}M, bita: {:.3f}K, bitw: {:.3f}M'.format(
+    #     bitops, bita, bitw))
+    # print('expected model with bitops: {:.3f}M, bita: {:.3f}K, bitw: {:.3f}M'.format(
+    #     mixbitops, mixbita, mixbitw))
+    # for key, value in best_arch.items():
+    #     print('{}: {}'.format(key, value))
 
     # Search
     best_epoch, best_acc1, best_acc1_test = \

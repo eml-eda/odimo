@@ -397,7 +397,7 @@ def quantres8_fp_foldbn(arch_cfg_path, **kwargs):
         raise FileNotFoundError
 
     archas, archws = [[8]] * 10, [[8]] * 10
-    model = TinyMLResNet(qm.FpConv2d, hw.diana(analog_speedup=5.),
+    model = TinyMLResNet(qm.FpConv2d, None,
                          archws, archas, qtz_fc='multi', **kwargs)
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     model.load_state_dict(fp_state_dict)
