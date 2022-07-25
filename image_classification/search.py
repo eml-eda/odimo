@@ -418,8 +418,8 @@ def train(train_loader, val_loader, test_loader, model, criterion,
             model = freeze_weights(model, freeze=False)
             # Freeze alpha weights and train on normal weights and q_params
             model = freeze_alpha(model, freeze=True)
-            # train_epoch(train_loader_w, model, criterion, optimizer, arch_optimizer,
-            #             q_optimizer, epoch, args, temp, scope=scope)
+            train_epoch(train_loader_w, model, criterion, optimizer, arch_optimizer,
+                        q_optimizer, epoch, args, temp, scope=scope)
             model = freeze_alpha(model, freeze=False)
         else:
             train_epoch(train_loader, model, criterion, optimizer, arch_optimizer,
@@ -540,13 +540,12 @@ def train_epoch(train_loader, model, criterion,
         else:
             loss_complexity = torch.tensor(0.)
         complexity_losses.update(loss_complexity.item(), images.size(0))
-        # loss = task_loss + loss_complexity
+        loss = task_loss + loss_complexity
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
         arch_optimizer.zero_grad()
-        # loss.backward()
-        loss_complexity.backward()
+        loss.backward()
         optimizer.step()
         arch_optimizer.step()
 
