@@ -384,13 +384,21 @@ class QuantMultiPrecActivConv2d(nn.Module):
                 raise ValueError(f"Unknown fc search, possible values are {self.search_types}")
 
         # complexities
-        stride = kwargs['stride'] if 'stride' in kwargs else 1
+        self.stride = kwargs['stride'] if 'stride' in kwargs else 1
         if isinstance(kwargs['kernel_size'], tuple):
             kernel_size = kwargs['kernel_size'][0] * kwargs['kernel_size'][1]
+            self.k_x = kwargs['kernel_size'][0]
+            self.k_y = kwargs['kernel_size'][1]
         else:
             kernel_size = kwargs['kernel_size'] * kwargs['kernel_size']
+            self.k_x = kwargs['kernel_size']
+            self.k_y = kwargs['kernel_size']
+        self.ch_in = inplane
+        self.ch_out = outplane
+        self.out_x = None
+        self.out_y = None
         self.param_size = inplane * outplane * kernel_size / kwargs['groups'] * 1e-6
-        self.filter_size = self.param_size / float(stride ** 2.0)
+        self.filter_size = self.param_size / float(self.stride ** 2.0)
         self.register_buffer('size_product', torch.tensor(0, dtype=torch.float))
         self.register_buffer('memory_size', torch.tensor(0, dtype=torch.float))
 
@@ -406,6 +414,9 @@ class QuantMultiPrecActivConv2d(nn.Module):
             out = _channel_asym_min_max_quantize.apply(input, 8)
             act_scale = None
         out = self.mix_weight(out, act_scale)
+        out_shape = out.shape
+        self.out_x = out_shape[-2]
+        self.out_y = out_shape[-1]
         return out
 
 
@@ -959,10 +970,10 @@ class MultiPrecActivConv2d(nn.Module):
             conv_shape['ch_out'] = ch_eff
             if bit == 2:  # Analog accelerator
                 # cycle = sum(s_w[i]) / self.hw_model('analog')
-                cycle = self.hw_model('analog', **conv_shape) * 1e-6  # [M]Cycles
+                cycle = self.hw_model('analog', **conv_shape)  # * 1e-6  # [M]Cycles
             else:  # Digital accelerator
                 # cycle = sum(s_w[i]) / self.hw_model('digital')
-                cycle = self.hw_model('digital', **conv_shape) * 1e-6  # [M]Cycles
+                cycle = self.hw_model('digital', **conv_shape)  # * 1e-6  # [M]Cycles
             cycles.append(cycle)
 
         # Build tensor of cycles
@@ -982,7 +993,7 @@ class MultiPrecActivConv2d(nn.Module):
         # Activations
         if not self.input_qtz:
             prob_activ = F.softmax(self.mix_activ.alpha_activ/self.temp, dim=0)
-            prob_activ = prob_activ.detach().cpu().numpy()
+            prob_activ = prob_activ.detach().cpu()
             best_activ = prob_activ.argmax()
             mix_abit = 0
             abits = self.mix_activ.bits
@@ -1040,14 +1051,15 @@ class MultiPrecActivConv2d(nn.Module):
             best_wbit = sum([wbits[_] for _ in best_weight]) / cout
             eff_cycles = []
             mix_eff_cycles = []
-            eff_cycle = 0
-            mix_eff_cycle = 0
+            eff_cycle = 0.
+            mix_eff_cycle = 0.
             for i, bit in enumerate(wbits):
                 ch_out = sum(best_weight == i)
                 mix_ch_out = sum(prob_weight[i])
                 conv_shape['ch_out'] = ch_out
                 if bit == 2:
-                    eff_cycle = self.hw_model('analog', **conv_shape)
+                    if ch_out != 0:
+                        eff_cycle = self.hw_model('analog', **conv_shape)
                     conv_shape['ch_out'] = mix_ch_out
                     mix_eff_cycle = self.hw_model('analog', **conv_shape)
                 else:
@@ -1068,7 +1080,12 @@ class MultiPrecActivConv2d(nn.Module):
                 # mac_cycle = self.hw_model('digital')
 
         if not self.input_qtz:
-            best_arch = {'best_activ': [best_activ], 'best_weight': [best_weight]}
+            if best_activ.dtype is torch.int64:  # Single val
+                best_abits = [[abits[best_activ]]]
+            else:
+                best_abits = [abits[i] for i in best_activ]
+            best_wbits = [[wbits[i] for i in best_weight]]
+            best_arch = {'best_activ': best_abits, 'best_weight': best_wbits}
             # bitops = size_product * abits[best_activ] * best_wbit
             bita = memory_size * abits[best_activ]
         else:
@@ -1078,9 +1095,9 @@ class MultiPrecActivConv2d(nn.Module):
             bita = memory_size * 8
 
         bitw = self.param_size * best_wbit
-        cycles = slowest_eff_cycle * 1e-6  # [M]
+        cycles = slowest_eff_cycle  # * 1e-6  # [M]
         # mixbitops = size_product * mix_abit * mix_wbit
-        mixcycles = slowest_mix_eff_cycle * 1e-6  # [M]
+        mixcycles = slowest_mix_eff_cycle  # * 1e-6  # [M]
         mixbita = memory_size * mix_abit
         mixbitw = self.param_size * mix_wbit
 

@@ -6,7 +6,8 @@ import models
 parser = argparse.ArgumentParser(description='Get model size')
 parser.add_argument('arch', type=str, help='Architecture name')
 parser.add_argument('--num-classes', type=int, help='Number of output classes')
-parser.add_argument('--analog-speedup', type=float, help='SpeedUp of analog wrt digital')
+parser.add_argument('--analog-speedup', type=float, default=5.,
+                    help='SpeedUp of analog wrt digital')
 parser.add_argument('--pretrained-model', type=str, default=None, help='Pretrained model path')
 
 args = parser.parse_args()

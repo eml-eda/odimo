@@ -163,14 +163,14 @@ class TinyMLResNet(nn.Module):
         return loss
 
     def fetch_best_arch(self):
-        sum_bitops, sum_bita, sum_bitw = 0, 0, 0
-        sum_mixbitops, sum_mixbita, sum_mixbitw = 0, 0, 0
+        sum_cycles, sum_bita, sum_bitw = 0, 0, 0
+        sum_mixcycles, sum_mixbita, sum_mixbitw = 0, 0, 0
         layer_idx = 0
         best_arch = None
         for m in self.modules():
             if isinstance(m, self.conv_func):
                 outs = m.fetch_best_arch(layer_idx)  # Return tuple
-                layer_arch, bitops, bita, bitw, mixbitops, mixbita, mixbitw = outs
+                layer_arch, cycles, bita, bitw, mixcycles, mixbita, mixbitw = outs
                 if best_arch is None:
                     best_arch = layer_arch
                 else:
@@ -179,14 +179,14 @@ class TinyMLResNet(nn.Module):
                             best_arch[key] = layer_arch[key]
                         else:
                             best_arch[key].append(layer_arch[key][0])
-                sum_bitops += bitops
+                sum_cycles += cycles
                 sum_bita += bita
                 sum_bitw += bitw
-                sum_mixbitops += mixbitops
+                sum_mixcycles += mixcycles
                 sum_mixbita += mixbita
                 sum_mixbitw += mixbitw
                 layer_idx += 1
-        return best_arch, sum_bitops, sum_bita, sum_bitw, sum_mixbitops, sum_mixbita, sum_mixbitw
+        return best_arch, sum_cycles, sum_bita, sum_bitw, sum_mixcycles, sum_mixbita, sum_mixbitw
 
 
 # MR

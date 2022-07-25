@@ -259,10 +259,19 @@ class TinyMLResNet(nn.Module):
                 abit = m.abits[0]
                 sum_bitw += size_product * wbit
 
+                # Define dict where shapes informations needed to model accelerators perf
+                conv_shape = {
+                    'ch_in': m.ch_in,
+                    'ch_out': torch.tensor(m.ch_out),
+                    'k_x': m.k_x,
+                    'k_y': m.k_y,
+                    'out_x': m.out_x,
+                    'out_y': m.out_y,
+                    }
                 if wbit == 2:
-                    cycles = size_product / self.hw_model('analog')
+                    cycles = self.hw_model('analog', **conv_shape)
                 else:
-                    cycles = size_product / self.hw_model('digital')
+                    cycles = self.hw_model('digital', **conv_shape)
 
                 bita = memory_size * abit
                 bitw = m.param_size * wbit
@@ -270,7 +279,7 @@ class TinyMLResNet(nn.Module):
                 sum_bita += bita
                 sum_bitw += bitw
                 layer_idx += 1
-        return sum_cycles, sum_bita, sum_bitw
+        return sum_cycles * 1e-6, sum_bita, sum_bitw
 
 
 def _load_arch(arch_path, names_nbits):

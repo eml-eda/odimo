@@ -105,7 +105,7 @@ def diana_naive(analog_speedup=5.):
     return diana_model
 
 
-def diana():
+def diana(**kwargs):
 
     def diana_model(accelerator, **kwargs):
         if accelerator == 'analog':

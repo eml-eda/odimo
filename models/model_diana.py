@@ -52,7 +52,7 @@ if __name__ == '__main__':
     digital_cyc = []
     ox_unroll = []
     ch_in = 32
-    ch_max = 128
+    ch_max = 64
     for ch in np.arange(1, ch_max):
         MAC_cycles_digital, cycles_digital = digital_cycles(ch_in, ch, 16, 16, 3, 3)
         MAC_cycles_analog, cycles_analog = analog_cycles(ch_in, ch, 16, 16, 3, 3)
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     plt.savefig("MAC_cycles.png")
     plt.figure()
     plt.plot(np.arange(1, ch_max), ox_unroll)
-    plt.savefig("ox_unroll.png")
+    # plt.savefig("ox_unroll.png")
 
     plt.figure()
     plt.plot(np.arange(1, ch_max), analog_cyc, label="analog")
