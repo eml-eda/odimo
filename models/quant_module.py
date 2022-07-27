@@ -925,8 +925,8 @@ class MultiPrecActivConv2d(nn.Module):
     def forward(self, input, temp, is_hard):
         self.temp = temp
         in_shape = input.shape
-        self.out_x = in_shape[-2] / float(self.stride)
-        self.out_y = in_shape[-1] / float(self.stride)
+        # self.out_x = in_shape[-2] / float(self.stride)
+        # self.out_y = in_shape[-1] / float(self.stride)
         tmp = torch.tensor(in_shape[1] * in_shape[2] * in_shape[3] * 1e-3, dtype=torch.float)
         self.memory_size.copy_(tmp)
         tmp = torch.tensor(self.filter_size * in_shape[-1] * in_shape[-2], dtype=torch.float)
@@ -938,6 +938,9 @@ class MultiPrecActivConv2d(nn.Module):
             out = _channel_asym_min_max_quantize.apply(input, 8)
             act_scale = None
         out = self.mix_weight(out, temp, is_hard, act_scale)
+        out_shape = out.shape
+        self.out_x = out_shape[-2]
+        self.out_y = out_shape[-1]
         return out
 
     def complexity_loss(self):
@@ -1060,8 +1063,8 @@ class MultiPrecActivConv2d(nn.Module):
                 if bit == 2:
                     if ch_out != 0:
                         eff_cycle = self.hw_model('analog', **conv_shape)
-                    conv_shape['ch_out'] = mix_ch_out
-                    mix_eff_cycle = self.hw_model('analog', **conv_shape)
+                        conv_shape['ch_out'] = mix_ch_out
+                        mix_eff_cycle = self.hw_model('analog', **conv_shape)
                 else:
                     eff_cycle = self.hw_model('digital', **conv_shape)
                     conv_shape['ch_out'] = mix_ch_out

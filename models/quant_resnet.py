@@ -259,7 +259,7 @@ class TinyMLResNet(nn.Module):
                 abit = m.abits[0]
                 sum_bitw += size_product * wbit
 
-                # Define dict where shapes informations needed to model accelerators perf
+                # Define dict whit shape infos used to model accelerators perf
                 conv_shape = {
                     'ch_in': m.ch_in,
                     'ch_out': torch.tensor(m.ch_out),
@@ -279,7 +279,7 @@ class TinyMLResNet(nn.Module):
                 sum_bita += bita
                 sum_bitw += bitw
                 layer_idx += 1
-        return sum_cycles * 1e-6, sum_bita, sum_bitw
+        return sum_cycles, sum_bita, sum_bitw
 
 
 def _load_arch(arch_path, names_nbits):
