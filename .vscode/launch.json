@@ -5,6 +5,19 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: model_profiler",
+            "type": "python",
+            "request": "launch",
+            "program": "profile_model.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/models",
+            "args": [
+                "resnet8",
+                "--plot-net-graph"
+            ]
+        },
+        {
             "name": "Python: res8_diana_naive5",
             "type": "python",
             "request": "launch",

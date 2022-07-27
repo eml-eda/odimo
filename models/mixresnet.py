@@ -245,7 +245,7 @@ def mixres8_diana(arch_cfg_path, **kwargs):
     # NB: 2 bits is equivalent for ternary weights!!
     search_model = TinyMLResNet(
         qm.MultiPrecActivConv2d, hw.diana(),
-        search_fc='multi', wbits=[2, 8], abits=[7], bn=False,
+        search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
         share_weight=True, **kwargs)
 
     # Get folded pretrained model

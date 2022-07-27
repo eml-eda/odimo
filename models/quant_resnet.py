@@ -29,7 +29,7 @@ __all__ = [
     'quantres8_w2a8_true_foldbn',
     'quantres8_w2a7_true_foldbn',
     'quantres8_diana',
-    'quantres8_diana5', 'quantres8_diana10', 'quantres8_diana100',
+    'quantres8_diana_naive5', 'quantres8_diana_naive10', 'quantres8_diana_naive100',
 ]
 
 
@@ -1021,21 +1021,21 @@ def quantres8_w2a7_true_foldbn(arch_cfg_path, **kwargs):
     return q_model
 
 
-def quantres8_diana5(arch_cfg_path, **kwargs):
-    return quantres8_diana(arch_cfg_path, **kwargs)
+def quantres8_diana_naive5(arch_cfg_path, **kwargs):
+    return quantres8_diana_naive(arch_cfg_path, **kwargs)
 
 
-def quantres8_diana10(arch_cfg_path, **kwargs):
-    return quantres8_diana(arch_cfg_path, **kwargs)
+def quantres8_diana_naive10(arch_cfg_path, **kwargs):
+    return quantres8_diana_naive(arch_cfg_path, **kwargs)
 
 
-def quantres8_diana100(arch_cfg_path, **kwargs):
-    return quantres8_diana(arch_cfg_path, **kwargs)
+def quantres8_diana_naive100(arch_cfg_path, **kwargs):
+    return quantres8_diana_naive(arch_cfg_path, **kwargs)
 
 
 # ToDO
 # qtz_fc: None or 'fixed' or 'mixed' or 'multi'
-def quantres8_diana(arch_cfg_path, **kwargs):
+def quantres8_diana_naive(arch_cfg_path, **kwargs):
     wbits, abits = [2, 8], [7]
 
     # ## This block of code is only necessary to comply with the underlying EdMIPS code ##
@@ -1050,6 +1050,34 @@ def quantres8_diana(arch_cfg_path, **kwargs):
     ##
 
     model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+                         archws, archas, qtz_fc='multi', bn=False, **kwargs)
+
+    if kwargs['fine_tune']:
+        # Load all weights
+        state_dict = torch.load(arch_cfg_path)['state_dict']
+        model.load_state_dict(state_dict)
+    else:
+        # Load only alphas weights
+        alpha_state_dict = _load_alpha_state_dict(arch_cfg_path)
+        model.load_state_dict(alpha_state_dict, strict=False)
+    return model
+
+
+def quantres8_diana(arch_cfg_path, **kwargs):
+    wbits, abits = [8, 2], [7]
+
+    # ## This block of code is only necessary to comply with the underlying EdMIPS code ##
+    best_arch, worst_arch = _load_arch_multi_prec(arch_cfg_path)
+    archas = [abits for a in best_arch['alpha_activ']]
+    archws = [wbits for w_ch in best_arch['alpha_weight']]
+    if len(archws) == 9:
+        # Case of fixed-precision on last fc layer
+        archws.append(8)
+    assert len(archas) == 10  # 10 insead of 8 because conv1 and fc activations are also quantized
+    assert len(archws) == 10  # 10 instead of 8 because conv1 and fc weights are also quantized
+    ##
+
+    model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(),
                          archws, archas, qtz_fc='multi', bn=False, **kwargs)
 
     if kwargs['fine_tune']:

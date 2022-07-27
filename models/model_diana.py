@@ -1,6 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+_ALL__ = [
+    'analog_cycles',
+    'digital_cycles',
+]
+
 F = 260000000  # Hz
 
 
@@ -51,11 +56,15 @@ if __name__ == '__main__':
     analog_cyc = []
     digital_cyc = []
     ox_unroll = []
-    ch_in = 32
-    ch_max = 64
+    ch_in = 512  # 64
+    ch_max = 1000  # 64
+    out_x = 1  # 16
+    out_y = 1  # 16
+    k_x = 1  # 3
+    k_y = 1  # 3
     for ch in np.arange(1, ch_max):
-        MAC_cycles_digital, cycles_digital = digital_cycles(ch_in, ch, 16, 16, 3, 3)
-        MAC_cycles_analog, cycles_analog = analog_cycles(ch_in, ch, 16, 16, 3, 3)
+        MAC_cycles_digital, cycles_digital = digital_cycles(ch_in, ch, out_x, out_y, k_x, k_y)
+        MAC_cycles_analog, cycles_analog = analog_cycles(ch_in, ch, out_x, out_y, k_x, k_y)
         analog.append(MAC_cycles_analog)
         digital_cyc.append(cycles_digital)
         analog_cyc.append(cycles_analog)

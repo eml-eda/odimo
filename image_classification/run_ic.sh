@@ -35,10 +35,10 @@ if [[ "$3" == "search" ]]; then
         -d cifar10 --tiny-test --arch-data-split ${split} \
         --epochs 500 --step-epoch 50 -b 32 \
         --ac ${pretrained_model} --patience 100 \
-        --lr 0.001 --lra 0.01 --wd 1e-4 \
+        --lr 0.001 --lra 1e-3 --wd 1e-4 \
         --ai same --cd ${strength} --rt weights \
         --seed 42 --gpu 0 \
-        --no-gumbel-softmax --temperature 1 --anneal-temp \
+        --no-gumbel-softmax --temperature 2 --anneal-temp \
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/log_search_${strength}.txt
 fi
 
