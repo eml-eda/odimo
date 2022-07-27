@@ -10,6 +10,7 @@ path="."
 #arch="res8_w248a8_chan"
 #arch="res8_w248a8_multiprec"
 #arch="res8_w248a248_multiprec"
+pretrained_model="warmup20_fp.pth.tar"
 arch=$2
 
 project="hp-nas_ic"
@@ -28,22 +29,22 @@ if [[ "$3" == "search" ]]; then
     echo Search
     split=0.2
     # NB: add --warmup-8bit if needed
-    python3 search.py ${path}/${arch}/model_${strength} -a mix${arch} \
-        -d cifar --arch-data-split ${split} \
-        --epochs 500 --step-epoch 50 -b 32 \
-        --warmup ${warmup} --no-warmup-8bit --patience 100 \
-        --lr 0.001 --lra 0.01 --wd 1e-4 \
+    python3 search_r20.py ${path}/${arch}/model_${strength} -a mix${arch} \
+        -d cifar10 --arch-data-split ${split} \
+        --epochs 200 --step-epoch 50 -b 128 \
+        --ac ${pretrained_model} --patience 100 \
+        --lr 0.001 --lra 0.001 --wd 1e-4 \
         --ai same --cd ${strength} --rt weights \
         --seed 42 --gpu 0 \
-        --no-gumbel-softmax --temperature 5 --anneal-temp \
+        --no-gumbel-softmax --temperature 2 --anneal-temp \
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/log_search_${strength}.txt
 fi
 
 if [[ "$4" == "ft" ]]; then
     echo Fine-Tune
-    python3 main.py ${path}/${arch}/model_${strength} -a quant${arch} \
-        -d cifar --epochs 500 --step-epoch 50 -b 32 --patience 500 \
-        --lr 0.001 --wd 1e-4 \
+    python3 main_r20.py ${path}/${arch}/model_${strength} -a quant${arch} \
+        -d cifar10 --epochs 200 --step-epoch 50 -b 128 --patience 500 \
+        --lr 0.0001 --wd 1e-4 \
         --seed 42 --gpu 0 \
         --ac ${arch}/model_${strength}/arch_model_best.pth.tar -ft \
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/log_finetune_${strength}.txt

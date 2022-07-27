@@ -48,8 +48,8 @@ class Backbone20(nn.Module):
         self.bb_2_1 = BasicBlockGumbel(conv_func, hw_model, 32, 32, stride=1, bn=bn, **kwargs)
         self.bb_2_2 = BasicBlockGumbel(conv_func, hw_model, 32, 32, stride=1, bn=bn, **kwargs)
         self.bb_3_0 = BasicBlockGumbel(conv_func, hw_model, 32, 64, stride=2, bn=bn, **kwargs)
-        self.bb_3_0 = BasicBlockGumbel(conv_func, hw_model, 64, 64, stride=1, bn=bn, **kwargs)
-        self.bb_3_0 = BasicBlockGumbel(conv_func, hw_model, 64, 64, stride=1, bn=bn, **kwargs)
+        self.bb_3_1 = BasicBlockGumbel(conv_func, hw_model, 64, 64, stride=1, bn=bn, **kwargs)
+        self.bb_3_2 = BasicBlockGumbel(conv_func, hw_model, 64, 64, stride=1, bn=bn, **kwargs)
         self.pool = nn.AvgPool2d(kernel_size=8)
 
     def forward(self, x, temp, is_hard):
