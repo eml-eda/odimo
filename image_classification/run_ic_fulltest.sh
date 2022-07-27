@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 strength=$1
-warmup=$2
 path="."
 
 #arch="res8_fp"
@@ -11,7 +10,7 @@ path="."
 #arch="res8_w248a8_chan"
 #arch="res8_w248a8_multiprec"
 #arch="res8_w248a248_multiprec"
-arch=$3
+arch=$2
 
 project="hp-nas_ic"
 
@@ -25,7 +24,7 @@ mkdir -p ${path}/${arch}/model_${strength}
 
 export WANDB_MODE=offline
 
-if [[ "$4" == "search" ]]; then
+if [[ "$3" == "search" ]]; then
     echo Search
     split=0.2
     # NB: add --warmup-8bit if needed
@@ -40,7 +39,7 @@ if [[ "$4" == "search" ]]; then
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/log_search_${strength}.txt
 fi
 
-if [[ "$5" == "ft" ]]; then
+if [[ "$4" == "ft" ]]; then
     echo Fine-Tune
     python3 main.py ${path}/${arch}/model_${strength} -a quant${arch} \
         -d cifar --epochs 500 --step-epoch 50 -b 32 --patience 500 \
