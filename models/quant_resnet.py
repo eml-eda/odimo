@@ -12,7 +12,7 @@ from . import hw_models as hw
 # MR
 __all__ = [
     'quantres8_fp', 'quantres8_fp_foldbn',
-    'quantres20_fp',
+    'quantres20_fp', 'quantres20_fp_foldbn',
     'quantres8_w8a8', 'quantres8_w8a8_nobn',
     'quantres8_w8a8_foldbn',
     'quantres8_w8a8_pretrained', 'quantres8_w8a8_nobn_pretrained',
@@ -445,6 +445,25 @@ def quantres8_fp_foldbn(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 10, [[8]] * 10
     model = TinyMLResNet(qm.FpConv2d, None,
                          archws, archas, qtz_fc='multi', **kwargs)
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    model.load_state_dict(fp_state_dict)
+
+    model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(model)
+    folded_model.train()  # Put folded model in train mode
+
+    return folded_model
+
+
+def quantres20_fp_foldbn(arch_cfg_path, **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[8]] * 22, [[8]] * 22
+    model = ResNet20(qm.FpConv2d, None,
+                     archws, archas, qtz_fc='multi', **kwargs)
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     model.load_state_dict(fp_state_dict)
 
@@ -1236,6 +1255,34 @@ def quantres8_diana(arch_cfg_path, **kwargs):
 
     model = TinyMLResNet(qm.QuantMultiPrecActivConv2d, hw.diana(),
                          archws, archas, qtz_fc='multi', bn=False, **kwargs)
+
+    if kwargs['fine_tune']:
+        # Load all weights
+        state_dict = torch.load(arch_cfg_path)['state_dict']
+        model.load_state_dict(state_dict)
+    else:
+        # Load only alphas weights
+        alpha_state_dict = _load_alpha_state_dict(arch_cfg_path)
+        model.load_state_dict(alpha_state_dict, strict=False)
+    return model
+
+
+def quantres20_diana(arch_cfg_path, **kwargs):
+    wbits, abits = [8, 2], [7]
+
+    # ## This block of code is only necessary to comply with the underlying EdMIPS code ##
+    best_arch, worst_arch = _load_arch_multi_prec(arch_cfg_path)
+    archas = [abits for a in best_arch['alpha_activ']]
+    archws = [wbits for w_ch in best_arch['alpha_weight']]
+    if len(archws) == 21:
+        # Case of fixed-precision on last fc layer
+        archws.append(8)
+    assert len(archas) == 22  # 10 insead of 8 because conv1 and fc activations are also quantized
+    assert len(archws) == 22  # 10 instead of 8 because conv1 and fc weights are also quantized
+    ##
+
+    model = ResNet20(qm.QuantMultiPrecActivConv2d, hw.diana(),
+                     archws, archas, qtz_fc='multi', bn=False, **kwargs)
 
     if kwargs['fine_tune']:
         # Load all weights
