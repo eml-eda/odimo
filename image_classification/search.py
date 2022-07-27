@@ -546,9 +546,11 @@ def train_epoch(train_loader, model, criterion,
         # compute gradient and do SGD step
         optimizer.zero_grad()
         arch_optimizer.zero_grad()
+        q_optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         arch_optimizer.step()
+        q_optimizer.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)

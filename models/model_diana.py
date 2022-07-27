@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-_ALL__ = [
+__all__ = [
     'analog_cycles',
     'digital_cycles',
 ]
@@ -13,39 +13,29 @@ def _floor(ch, N):
     return np.floor((ch + N - 1) / N)
 
 
-def _ox_unroll_base(ch_in, ch_out, fs_x, fs_y):
+def _ox_unroll_base(ch_in, ch_out, k_x, k_y):
     ox_unroll_base = 1
     channel_input_unroll = 64 if ch_in < 64 else ch_in
     for ox_unroll in [1, 2, 4, 8]:
         if (ch_out * ox_unroll <= 512) and \
-                (channel_input_unroll * fs_y * (fs_x + ox_unroll - 1) <= 1152):
+                (channel_input_unroll * k_y * (k_x + ox_unroll - 1) <= 1152):
             ox_unroll_base = ox_unroll
     return ox_unroll_base
 
 
-def digital_cycles(ch_in, ch_out, out_x, out_y, fs_x, fs_y):
-    cycles = _floor(ch_out, 16) * ch_in * _floor(out_x, 16) * out_y * fs_x * fs_y
+def digital_cycles(ch_in, ch_out, k_x, k_y, out_x, out_y):
+    cycles = _floor(ch_out, 16) * ch_in * _floor(out_x, 16) * out_y * k_x * k_y
     cycles_load_store = out_x * out_y * (ch_out + ch_in) / 8
-    MACs = ch_in * ch_out * out_x * out_y * fs_x * fs_y
+    MACs = ch_in * ch_out * out_x * out_y * k_x * k_y
     MAC_cycles = MACs / (cycles + cycles_load_store)
     return MAC_cycles, (cycles + cycles_load_store)
 
 
-def analog_cycles(ch_in, ch_out, out_x, out_y, fs_x, fs_y):
-    # ox_unroll_base = 1
-    # channel_input_unroll = 64 if ch_in < 64 else ch_in
-    # for ox_unroll in [1, 2, 4, 8]:
-    #     if (ch_out * ox_unroll <= 512) and \
-    #             (channel_input_unroll * fs_y * (fs_x + ox_unroll - 1) <= 1152):
-    #         ox_unroll_base = ox_unroll
-    ox_unroll_base = _ox_unroll_base(ch_in, ch_out, fs_x, fs_y)
+def analog_cycles(ch_in, ch_out, k_x, k_y, out_x, out_y,):
+    ox_unroll_base = _ox_unroll_base(ch_in, ch_out, k_x, k_y)
     cycles_computation = _floor(ch_out, 512) * _floor(ch_in, 128) * out_x * out_y / ox_unroll_base
-    # if channel_output <= 256:
-    #   cycles_weights = 3 * 2 * fs_x * fs_y * channel_input
-    # else:
-    # 	cycles_weights = 4 * 2 * fs_x * fs_y * channel_input
     cycles_weights = 4 * 2 * 1152
-    MACs = ch_in * ch_out * out_x * out_y * fs_x * fs_y
+    MACs = ch_in * ch_out * out_x * out_y * k_x * k_y
     MAC_cycles = MACs / ((cycles_computation * 70 / (1000000000 / F) + cycles_weights))
     return MAC_cycles, (cycles_computation * 70 / (1000000000 / F) + cycles_weights)
 
@@ -63,13 +53,13 @@ if __name__ == '__main__':
     k_x = 1  # 3
     k_y = 1  # 3
     for ch in np.arange(1, ch_max):
-        MAC_cycles_digital, cycles_digital = digital_cycles(ch_in, ch, out_x, out_y, k_x, k_y)
-        MAC_cycles_analog, cycles_analog = analog_cycles(ch_in, ch, out_x, out_y, k_x, k_y)
+        MAC_cycles_digital, cycles_digital = digital_cycles(ch_in, ch, k_x, k_y, out_x, out_y)
+        MAC_cycles_analog, cycles_analog = analog_cycles(ch_in, ch, k_x, k_y, out_x, out_y)
         analog.append(MAC_cycles_analog)
         digital_cyc.append(cycles_digital)
         analog_cyc.append(cycles_analog)
         digital.append(MAC_cycles_digital)
-        ox_unroll.append(_ox_unroll_base(ch_in, ch, 3, 3))
+        ox_unroll.append(_ox_unroll_base(ch_in, ch, k_x, k_y))
     plt.plot(np.arange(1, ch_max), analog, label="analog")
     plt.plot(np.arange(1, ch_max), digital, label="digital")
     plt.legend()
