@@ -1,4 +1,5 @@
 import argparse
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -23,7 +24,7 @@ _INP_SHAPE = {
 }
 
 
-def profile(arch, plot_net_graph=False):
+def profile_cycles(arch, plot_net_graph=False):
     model = _ARCH_FUNC[arch](None)
     dummy_input = torch.randn(_INP_SHAPE[arch])
     gm = fx.symbolic_trace(model)
@@ -33,6 +34,7 @@ def profile(arch, plot_net_graph=False):
     if plot_net_graph:
         gd = FxGraphDrawer(gm, str(arch))
         gd.get_dot_graph().write_png(f'{str(arch)}_graph.png')
+        print(f'Graph Plot saved @ {str(arch)}_graph.png', end='\n')
 
     ShapeProp(gm).propagate(dummy_input)
 
@@ -72,14 +74,15 @@ def profile(arch, plot_net_graph=False):
     fig, axis = plt.subplots(n_layer, figsize=figsize)
 
     for idx, col in enumerate(df):
-        axis[idx].plot(df[col]['x_ch'], df[col]['a_cycles'], label='analog')
-        axis[idx].plot(df[col]['x_ch'], df[col]['d_cycles'], label='digital')
+        axis[idx].plot(df[col]['x_ch'], df[col]['a_cycles'], color='#ff595e', label='analog')
+        axis[idx].plot(df[col]['x_ch'], df[col]['d_cycles'], color='#1982c4', label='digital')
         axis[idx].set_title(col)
 
     handles, labels = axis[-1].get_legend_handles_labels()
     fig.legend(handles, labels, ncol=2)
     fig.set_tight_layout(True)
     fig.savefig(f'{str(arch)}_cycles.png')
+    print(f'Layer-wise cycles profile saved @ {str(arch)}_cycles.png', end='\n')
 
     return
 
@@ -95,4 +98,4 @@ if __name__ == '__main__':
         raise ValueError(
             f'''{args.arch} is not supported. List of supported models: {_ARCH_FUNC.keys()}''')
 
-    profile(args.arch, plot_net_graph=args.plot_net_graph)
+    profile_cycles(args.arch, plot_net_graph=args.plot_net_graph)
