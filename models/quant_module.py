@@ -1054,9 +1054,9 @@ class MultiPrecActivConv2d(nn.Module):
             best_wbit = sum([wbits[_] for _ in best_weight]) / cout
             eff_cycles = []
             mix_eff_cycles = []
-            eff_cycle = 0.
-            mix_eff_cycle = 0.
             for i, bit in enumerate(wbits):
+                eff_cycle = 0.
+                mix_eff_cycle = 0.
                 ch_out = sum(best_weight == i)
                 mix_ch_out = sum(prob_weight[i])
                 conv_shape['ch_out'] = ch_out
@@ -1066,9 +1066,10 @@ class MultiPrecActivConv2d(nn.Module):
                         conv_shape['ch_out'] = mix_ch_out
                         mix_eff_cycle = self.hw_model('analog', **conv_shape)
                 else:
-                    eff_cycle = self.hw_model('digital', **conv_shape)
-                    conv_shape['ch_out'] = mix_ch_out
-                    mix_eff_cycle = self.hw_model('digital', **conv_shape)
+                    if ch_out != 0:
+                        eff_cycle = self.hw_model('digital', **conv_shape)
+                        conv_shape['ch_out'] = mix_ch_out
+                        mix_eff_cycle = self.hw_model('digital', **conv_shape)
                 eff_cycles.append(eff_cycle)
                 mix_eff_cycles.append(mix_eff_cycle)
             slowest_eff_cycle = max(eff_cycles)

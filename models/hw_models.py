@@ -51,6 +51,16 @@ class FloorSTE(torch.autograd.Function):
         return grad_output, None
 
 
+class GateSTE(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, ch, th):
+        return (ch >= th).float()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output, None
+
+
 def _analog_cycles(**kwargs):
     ch_in = kwargs['ch_in']
     ch_eff = kwargs['ch_out']
@@ -62,6 +72,8 @@ def _analog_cycles(**kwargs):
     cycles_comp = FloorSTE.apply(ch_eff, 512) * _floor(ch_in, 128) * out_x * out_y / ox_unroll_base
     cycles_weights = 4 * 2 * 1152
     cycles_comp_norm = cycles_comp * 70 / (1000000000 / F)
+    # gate = GateSTE.apply(ch_eff, 1.)
+    # return (gate * cycles_weights) + cycles_comp_norm
     return cycles_weights + cycles_comp_norm
 
 
@@ -74,8 +86,9 @@ def _digital_cycles(**kwargs):
     out_y = kwargs['out_y']
     cycles = FloorSTE.apply(ch_eff, 16) * ch_in * _floor(out_x, 16) * out_y * k_x * k_y
     cycles_load_store = out_x * out_y * (ch_eff + ch_in) / 8
-
-    return cycles + cycles_load_store
+    # gate = GateSTE.apply(ch_eff, 1.)
+    # return (gate * cycles_load_store) + cycles
+    return cycles_load_store + cycles
 
 
 def _floor(ch, N):
