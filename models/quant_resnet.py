@@ -34,6 +34,7 @@ __all__ = [
     'quantres20_w2a7_true_foldbn',
     'quantres8_diana',
     'quantres8_diana_naive5', 'quantres8_diana_naive10', 'quantres8_diana_naive100',
+    'quantres20_diana',
 ]
 
 
