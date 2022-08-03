@@ -14,7 +14,8 @@
             "cwd": "${workspaceFolder}/models",
             "args": [
                 "resnet8",
-                "--plot-net-graph"
+                "--path", "../arch_model_best.pth.tar",
+                "--save-pkl"
             ]
         },
         {
