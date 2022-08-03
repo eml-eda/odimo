@@ -13,8 +13,8 @@
             "justMyCode": true,
             "cwd": "${workspaceFolder}/models",
             "args": [
-                "resnet8",
-                "--path", "../arch_model_best.pth.tar",
+                "resnet20",
+                "--path", "../arch_model_best20.pth.tar",
                 "--save-pkl"
             ]
         },

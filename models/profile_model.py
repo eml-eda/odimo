@@ -88,9 +88,9 @@ def profile_cycles(arch,
                     for ch in range(1, ch_out+1)])
                 arch_details[name]['digital_latency'] = \
                     arch_details[name]['digital_func'].max()
-                arch_details[name]['min_latency'] = \
-                    (np.flip(arch_details[name]['analog_func']) -
-                     arch_details[name]['digital_func'] > 0)
+                idx = np.argmin(np.abs(np.flip(
+                    arch_details[name]['analog_func']) - arch_details[name]['digital_func']))
+                arch_details[name]['min_latency'] = arch_details[name]['digital_func'][idx]
                 alpha = state_dict[f'{name}.mix_weight.alpha_weight'].detach().cpu().numpy()
                 prec = alpha.argmax(axis=0)
                 ch_d = sum(prec == 0)
