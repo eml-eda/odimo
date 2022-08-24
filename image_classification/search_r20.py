@@ -530,6 +530,7 @@ def train_epoch(train_loader, model, criterion,
         # compute output
         output = model(images, temp, args.hard_gs)
         task_loss = criterion(output, target)
+        # task_loss = torch.tensor(0.)
 
         # measure accuracy and record loss
         acc1, acc5 = accuracy(output, target, topk=(1, 5))

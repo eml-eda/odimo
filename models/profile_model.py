@@ -4,7 +4,7 @@ import pickle
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
+# import pandas as pd
 
 import torch
 import torch.nn as nn
@@ -24,6 +24,8 @@ _INP_SHAPE = {
     'resnet8': (1, 3, 32, 32),
     'resnet20': (1, 3, 32, 32),
 }
+
+_BAR_WIDTH = 0.1
 
 
 def profile_cycles(arch,
@@ -102,25 +104,64 @@ def profile_cycles(arch,
                 arch_details[name]['NAS_analog'] = nas_a
                 arch_details[name]['NAS_max'] = nas_max
 
+    # if plot_layer_detail:
+    #     df = pd(arch_detailsFrame(arch_details)
+    #     n_layer = len(df.columns)
+    #     # figsize = [1*x for x in plt.rcParams["figure.figsize"]]
+    #     figsize = [n_layer, 2*n_layer]
+    #     fig, axis = plt.subplots(n_layer, figsize=figsize)
+
+    #     for idx, col in enumerate(df):
+    #         axis[idx].plot(df[col]['x_ch'], df[col]['analog_func'],
+    #                        color='#ff595e', label='analog')
+    #         axis[idx].plot(df[col]['x_ch'], df[col]['digital_func'],
+    #                        color='#1982c4', label='digital')
+    #         axis[idx].set_title(col)
+
+    #     handles, labels = axis[-1].get_legend_handles_labels()
+    #     fig.legend(handles, labels, ncol=2)
+    #     fig.set_tight_layout(True)
+    #     fig.savefig(f'{str(arch)}_cycles.png')
+    #     print(f'Layer-wise cycles profile saved @ {str(arch)}_cycles.png', end='\n')
+
     if plot_layer_detail:
-        df = pd.DataFrame(arch_details)
-        n_layer = len(df.columns)
-        # figsize = [1*x for x in plt.rcParams["figure.figsize"]]
-        figsize = [n_layer, 2*n_layer]
-        fig, axis = plt.subplots(n_layer, figsize=figsize)
-
-        for idx, col in enumerate(df):
-            axis[idx].plot(df[col]['x_ch'], df[col]['analog_func'],
-                           color='#ff595e', label='analog')
-            axis[idx].plot(df[col]['x_ch'], df[col]['digital_func'],
-                           color='#1982c4', label='digital')
-            axis[idx].set_title(col)
-
-        handles, labels = axis[-1].get_legend_handles_labels()
-        fig.legend(handles, labels, ncol=2)
+        layers = len(arch_details.keys())
+        br1 = np.arange(layers)
+        br2 = [x + _BAR_WIDTH for x in br1]
+        br3 = [x + _BAR_WIDTH for x in br2]
+        br4 = [x + _BAR_WIDTH for x in br3]
+        br5 = [x + _BAR_WIDTH for x in br4]
+        br6 = [x + _BAR_WIDTH for x in br5]
+        analog_latency = []
+        digital_latency = []
+        min_latency = []
+        NAS_analog = []
+        NAS_digital = []
+        NAS_max = []
+        for key in arch_details.keys():
+            analog_latency.append(arch_details[key]["analog_latency"])
+            digital_latency.append(arch_details[key]["digital_latency"])
+            min_latency.append(arch_details[key]["min_latency"])
+            NAS_analog.append(arch_details[key]["NAS_analog"])
+            NAS_digital.append(arch_details[key]["NAS_digital"])
+            NAS_max.append(arch_details[key]["NAS_max"])
+        fig, ax1 = plt.subplots(figsize=(layers, layers))
+        ax1.barh(br1, analog_latency, height=_BAR_WIDTH, edgecolor='k', color="blue",
+                 label="latency analog")
+        ax1.barh(br2, digital_latency, height=_BAR_WIDTH, edgecolor='k', color="green",
+                 label="latency digital")
+        ax1.barh(br3, min_latency, height=_BAR_WIDTH, edgecolor='k', color="r",
+                 label="minimum latency hybrid")
+        ax1.barh(br4, NAS_analog, height=_BAR_WIDTH, edgecolor='k', color="blue",
+                 label="NAS analog channels latency", hatch="//")
+        ax1.barh(br5, NAS_digital, height=_BAR_WIDTH, edgecolor='k', color="green",
+                 label="NAS digital channels latency", hatch="//")
+        ax1.barh(br6, NAS_max, height=_BAR_WIDTH, edgecolor='k', color="r",
+                 label="NAS latency", hatch="//")
+        fig.legend()
         fig.set_tight_layout(True)
-        fig.savefig(f'{str(arch)}_cycles.png')
-        print(f'Layer-wise cycles profile saved @ {str(arch)}_cycles.png', end='\n')
+        fig.savefig(f'{str(arch)}_profile.png')
+        print(f'Found arch profile saved @ {str(arch)}_profile.png', end='\n')
 
     if save_pkl:
         with open(f'details_{arch}.pickle', 'wb') as h:
@@ -131,7 +172,7 @@ def profile_cycles(arch,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Plot Model')
-    parser.add_argument('arch', type=str, help='Architecture name')
+    parser.add_argument('arch', type=str, help='Seed Architecture name')
     parser.add_argument('--path', type=str, default=None, help='path to discovered network')
     parser.add_argument('--plot-net-graph', action='store_true', default=False,
                         help='Architecture name')
