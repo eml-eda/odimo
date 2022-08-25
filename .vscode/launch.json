@@ -81,6 +81,36 @@
             ]
         },
         {
+            "name": "Python: res20_diana",
+            "type": "python",
+            "request": "launch",
+            "program": "search_r20.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/image_classification",
+            "args": [
+                "res20_diana/model_debug",
+                "-a", "mixres20_diana",
+                "-d", "cifar10",
+                "--arch-data-split", "0.2",
+                "--ac", "warmup20_fp.pth.tar",
+                "--epochs", "200",
+                "--step-epoch", "50",
+                "-b", "128",
+                "--patience", "100",
+                "--lr", "0.001",
+                "--lra", "1e-3",
+                "--wd", "1e-4",
+                "--ai", "same",
+                "--cd", "1e-4",
+                "--no-gumbel-softmax",
+                "--temperature", "1",
+                "--anneal-temp",
+                "--seed", "42",
+                "--gpu", "0"
+            ]
+        },
+        {
             "name": "Python: res8_fp",
             "type": "python",
             "request": "launch",

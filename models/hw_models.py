@@ -54,11 +54,20 @@ class FloorSTE(torch.autograd.Function):
 class GateSTE(torch.autograd.Function):
     @staticmethod
     def forward(ctx, ch, th):
+        ctx.save_for_backward(ch, torch.tensor(th))
         return (ch >= th).float()
 
     @staticmethod
     def backward(ctx, grad_output):
-        return grad_output, None
+        ch, th = ctx.saved_tensors
+        grad_input = grad_output.clone()
+        grad_input.masked_fill_(ch.le(0), 0)
+        grad_input.masked_fill_(ch.ge(th.data), 0)
+        # return grad_output, None
+        # smooth step grad with log derivative
+        # grad = 1 / (grad_input + 1)
+        grad = grad_input
+        return grad, None
 
 
 def _analog_cycles(**kwargs):

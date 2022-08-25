@@ -4,7 +4,7 @@ import pickle
 
 import matplotlib.pyplot as plt
 import numpy as np
-# import pandas as pd
+import pandas as pd
 
 import torch
 import torch.nn as nn
@@ -31,7 +31,8 @@ _BAR_WIDTH = 0.1
 def profile_cycles(arch,
                    input_shape='default',
                    pretrained_arch=None,
-                   plot_layer_detail=False,
+                   plot_layer_cycles=False,
+                   plot_disc_net=False,
                    plot_net_graph=False,
                    save_pkl=False):
     model = _ARCH_FUNC[arch](None)
@@ -92,39 +93,42 @@ def profile_cycles(arch,
                     arch_details[name]['digital_func'].max()
                 idx = np.argmin(np.abs(np.flip(
                     arch_details[name]['analog_func']) - arch_details[name]['digital_func']))
-                arch_details[name]['min_latency'] = arch_details[name]['digital_func'][idx]
-                alpha = state_dict[f'{name}.mix_weight.alpha_weight'].detach().cpu().numpy()
-                prec = alpha.argmax(axis=0)
-                ch_d = sum(prec == 0)
-                ch_a = sum(prec == 1)
-                _, nas_d = digital_cycles(ch_in, ch_d, k_x, k_y, out_x, out_y)
-                _, nas_a = analog_cycles(ch_in, ch_a, k_x, k_y, out_x, out_y)
-                nas_max = max(nas_d, nas_a)
-                arch_details[name]['NAS_digital'] = nas_d
-                arch_details[name]['NAS_analog'] = nas_a
-                arch_details[name]['NAS_max'] = nas_max
+                arch_details[name]['min_latency'] = min(
+                    arch_details[name]['digital_func'][idx],
+                    arch_details[name]['analog_func'][idx])
+                if pretrained_arch is not None:
+                    alpha = state_dict[f'{name}.mix_weight.alpha_weight'].detach().cpu().numpy()
+                    prec = alpha.argmax(axis=0)
+                    ch_d = sum(prec == 0)
+                    ch_a = sum(prec == 1)
+                    _, nas_d = digital_cycles(ch_in, ch_d, k_x, k_y, out_x, out_y)
+                    _, nas_a = analog_cycles(ch_in, ch_a, k_x, k_y, out_x, out_y)
+                    nas_max = max(nas_d, nas_a)
+                    arch_details[name]['NAS_digital'] = nas_d
+                    arch_details[name]['NAS_analog'] = nas_a
+                    arch_details[name]['NAS_max'] = nas_max
 
-    # if plot_layer_detail:
-    #     df = pd(arch_detailsFrame(arch_details)
-    #     n_layer = len(df.columns)
-    #     # figsize = [1*x for x in plt.rcParams["figure.figsize"]]
-    #     figsize = [n_layer, 2*n_layer]
-    #     fig, axis = plt.subplots(n_layer, figsize=figsize)
+    if plot_layer_cycles:
+        df = pd.DataFrame(arch_details)
+        n_layer = len(df.columns)
+        # figsize = [1*x for x in plt.rcParams["figure.figsize"]]
+        figsize = [n_layer, 2*n_layer]
+        fig, axis = plt.subplots(n_layer, figsize=figsize)
 
-    #     for idx, col in enumerate(df):
-    #         axis[idx].plot(df[col]['x_ch'], df[col]['analog_func'],
-    #                        color='#ff595e', label='analog')
-    #         axis[idx].plot(df[col]['x_ch'], df[col]['digital_func'],
-    #                        color='#1982c4', label='digital')
-    #         axis[idx].set_title(col)
+        for idx, col in enumerate(df):
+            axis[idx].plot(df[col]['x_ch'], df[col]['analog_func'],
+                           color='#ff595e', label='analog')
+            axis[idx].plot(df[col]['x_ch'], df[col]['digital_func'],
+                           color='#1982c4', label='digital')
+            axis[idx].set_title(col)
 
-    #     handles, labels = axis[-1].get_legend_handles_labels()
-    #     fig.legend(handles, labels, ncol=2)
-    #     fig.set_tight_layout(True)
-    #     fig.savefig(f'{str(arch)}_cycles.png')
-    #     print(f'Layer-wise cycles profile saved @ {str(arch)}_cycles.png', end='\n')
+        handles, labels = axis[-1].get_legend_handles_labels()
+        fig.legend(handles, labels, ncol=2)
+        fig.set_tight_layout(True)
+        fig.savefig(f'{str(arch)}_cycles.png')
+        print(f'Layer-wise cycles profile saved @ {str(arch)}_cycles.png', end='\n')
 
-    if plot_layer_detail:
+    if plot_disc_net and pretrained_arch is not None:
         layers = len(arch_details.keys())
         br1 = np.arange(layers)
         br2 = [x + _BAR_WIDTH for x in br1]
@@ -161,7 +165,9 @@ def profile_cycles(arch,
         fig.legend()
         fig.set_tight_layout(True)
         fig.savefig(f'{str(arch)}_profile.png')
-        print(f'Found arch profile saved @ {str(arch)}_profile.png', end='\n')
+        print(f'Discovered arch profile saved @ {str(arch)}_profile.png', end='\n')
+    else:
+        raise ValueError('To plot discovered arch detail you must provide proper "--path" arg')
 
     if save_pkl:
         with open(f'details_{arch}.pickle', 'wb') as h:
@@ -175,9 +181,11 @@ if __name__ == '__main__':
     parser.add_argument('arch', type=str, help='Seed Architecture name')
     parser.add_argument('--path', type=str, default=None, help='path to discovered network')
     parser.add_argument('--plot-net-graph', action='store_true', default=False,
-                        help='Architecture name')
-    parser.add_argument('--plot-layer-detail', action='store_true', default=False,
-                        help='Architecture name')
+                        help='Whether to plot net graph')
+    parser.add_argument('--plot-layer-cycles', action='store_true', default=False,
+                        help='Whether to plot layer cycles detail')
+    parser.add_argument('--plot-disc-net', action='store_true', default=False,
+                        help='Whether to plot discovered net detail')
     parser.add_argument('--save-pkl', action='store_true', default=False,
                         help='Architecture name')
     args = parser.parse_args()
@@ -188,6 +196,7 @@ if __name__ == '__main__':
 
     profile_cycles(args.arch,
                    pretrained_arch=args.path,
-                   plot_layer_detail=args.plot_layer_detail,
+                   plot_layer_cycles=args.plot_layer_cycles,
+                   plot_disc_net=args.plot_disc_net,
                    plot_net_graph=args.plot_net_graph,
                    save_pkl=args.save_pkl)

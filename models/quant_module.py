@@ -967,7 +967,7 @@ class MultiPrecActivConv2d(nn.Module):
 
         cycles = []
         cycle = 0
-        # TODO: Check if doable w/out for and if yes if is faster
+        # TODO: Check if doable w/out for and if yes if it is faster
         for i, bit in enumerate(wbits):
             ch_eff = sum(s_w[i])
             conv_shape['ch_out'] = ch_eff
@@ -1061,15 +1061,15 @@ class MultiPrecActivConv2d(nn.Module):
                 mix_ch_out = sum(prob_weight[i])
                 conv_shape['ch_out'] = ch_out
                 if bit == 2:
-                    if ch_out != 0:
-                        eff_cycle = self.hw_model('analog', **conv_shape)
-                        conv_shape['ch_out'] = mix_ch_out
-                        mix_eff_cycle = self.hw_model('analog', **conv_shape)
+                    # if ch_out != 0:
+                    eff_cycle = self.hw_model('analog', **conv_shape)
+                    conv_shape['ch_out'] = mix_ch_out
+                    mix_eff_cycle = self.hw_model('analog', **conv_shape)
                 else:
-                    if ch_out != 0:
-                        eff_cycle = self.hw_model('digital', **conv_shape)
-                        conv_shape['ch_out'] = mix_ch_out
-                        mix_eff_cycle = self.hw_model('digital', **conv_shape)
+                    # if ch_out != 0:
+                    eff_cycle = self.hw_model('digital', **conv_shape)
+                    conv_shape['ch_out'] = mix_ch_out
+                    mix_eff_cycle = self.hw_model('digital', **conv_shape)
                 eff_cycles.append(eff_cycle)
                 mix_eff_cycles.append(mix_eff_cycle)
             slowest_eff_cycle = max(eff_cycles)
