@@ -1,10 +1,14 @@
 import copy
 
+import numpy as np
+
 import torch
 import torch.fx as fx
+from torch.fx.passes.shape_prop import ShapeProp
 import torch.nn as nn
 from torch.nn.utils.fusion import fuse_conv_bn_eval
 
+from models.model_diana import analog_cycles, digital_cycles
 from . import quant_module as qm
 
 
@@ -64,6 +68,36 @@ def adapt_scale_params(state_dict, model):
             new_dict[key] = state_dict[key].repeat(dim)
 
     return new_dict
+
+
+def detect_ad_tradeoff(model, dummy_input):
+    gm = fx.symbolic_trace(model)
+    modules = dict(gm.named_modules())
+    ShapeProp(gm).propagate(dummy_input)
+    search_or_not = list()
+
+    # Build dict with layers' shapes and cycles
+    for node in gm.graph.nodes:
+        if node.target in modules.keys():
+            if isinstance(modules[node.target], nn.Conv2d):
+                conv = modules[node.target]
+                out_shape = node.meta['tensor_meta'].shape
+                ch_in = conv.in_channels
+                ch_out = conv.out_channels
+                k_x = conv.kernel_size[0]
+                k_y = conv.kernel_size[1]
+                out_x = out_shape[-2]
+                out_y = out_shape[-1]
+                analog_func = np.array([
+                    analog_cycles(ch_in, ch, k_x, k_y, out_x, out_y)[1]
+                    for ch in range(1, ch_out+1)])
+                digital_func = np.array([
+                    digital_cycles(ch_in, ch, k_x, k_y, out_x, out_y)[1]
+                    for ch in range(1, ch_out+1)])
+                search_or_not.append(
+                    any((np.flip(analog_func) - digital_func <= 0.))
+                )
+    return search_or_not
 
 
 # http://tinyurl.com/2p9a22kd <- copied from torch.fx experimental (torch v11.0)

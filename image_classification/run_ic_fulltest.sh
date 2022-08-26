@@ -32,7 +32,7 @@ if [[ "$3" == "search" ]]; then
     python3 search_r20.py ${path}/${arch}/model_${strength} -a mix${arch} \
         -d cifar10 --arch-data-split ${split} \
         --epochs 200 --step-epoch 50 -b 128 \
-        --ac ${pretrained_model} --patience 100 \
+        --ac ${pretrained_model} --patience 50 \
         --lr 0.001 --lra 0.001 --wd 1e-4 \
         --ai same --cd ${strength} --rt weights \
         --seed 42 --gpu 0 \
@@ -44,7 +44,7 @@ if [[ "$4" == "ft" ]]; then
     echo Fine-Tune
     python3 main_r20.py ${path}/${arch}/model_${strength} -a quant${arch} \
         -d cifar10 --epochs 200 --step-epoch 50 -b 128 --patience 500 \
-        --lr 0.0001 --wd 1e-4 \
+        --lr 0.00005 --wd 1e-4 \
         --seed 42 --gpu 0 \
         --ac ${arch}/model_${strength}/arch_model_best.pth.tar -ft \
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/log_finetune_${strength}.txt

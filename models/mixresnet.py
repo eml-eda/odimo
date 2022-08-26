@@ -1,26 +1,29 @@
 import math
 from pathlib import Path
 
+import torch
 import torch.nn as nn
 
 from . import utils
 from . import quant_module as qm
 from . import hw_models as hw
-from .quant_resnet import quantres8_fp_foldbn, quantres20_fp_foldbn
+from .quant_resnet import quantres8_fp_foldbn, quantres20_fp_foldbn, quantres20_fp
 
 
 # DJP
 __all__ = [
     'mixres8_diana_naive5', 'mixres8_diana_naive10', 'mixres8_diana_naive100',
     'mixres8_diana',
-    'mixres20_diana',
+    'mixres20_diana_reduced', 'mixres20_diana_full',
 ]
 
 
-def conv3x3(conv_func, hw_model, in_planes, out_planes, bias=False,
+def conv3x3(conv_func, hw_model, is_searchable, in_planes, out_planes, bias=False,
             stride=1, groups=1, fix_qtz=False, **kwargs):
     "3x3 convolution with padding"
     if conv_func != nn.Conv2d:
+        if not is_searchable:
+            kwargs['wbits'] = [8]
         return conv_func(hw_model, in_planes, out_planes,
                          kernel_size=3, groups=groups, stride=stride,
                          padding=1, bias=bias, fix_qtz=fix_qtz, **kwargs)
@@ -31,25 +34,37 @@ def conv3x3(conv_func, hw_model, in_planes, out_planes, bias=False,
 
 
 # MR
-def fc(conv_func, hw_model, in_planes, out_planes, stride=1, groups=1, search_fc=None, **kwargs):
+def fc(conv_func, hw_model, is_searchable, in_planes, out_planes, stride=1, groups=1,
+       search_fc=None, **kwargs):
     "fc mapped to conv"
+    if not is_searchable:
+        kwargs['wbits'] = [8]
     return conv_func(hw_model, in_planes, out_planes, kernel_size=1, groups=groups, stride=stride,
                      padding=0, bias=True, fc=search_fc, **kwargs)
 
 
 # MR
 class Backbone20(nn.Module):
-    def __init__(self, conv_func, hw_model, input_size, bn, **kwargs):
+    def __init__(self, conv_func, hw_model, is_searchable, input_size, bn, **kwargs):
         super().__init__()
-        self.bb_1_0 = BasicBlockGumbel(conv_func, hw_model, 16, 16, stride=1, bn=bn, **kwargs)
-        self.bb_1_1 = BasicBlockGumbel(conv_func, hw_model, 16, 16, stride=1, bn=bn, **kwargs)
-        self.bb_1_2 = BasicBlockGumbel(conv_func, hw_model, 16, 16, stride=1, bn=bn, **kwargs)
-        self.bb_2_0 = BasicBlockGumbel(conv_func, hw_model, 16, 32, stride=2, bn=bn, **kwargs)
-        self.bb_2_1 = BasicBlockGumbel(conv_func, hw_model, 32, 32, stride=1, bn=bn, **kwargs)
-        self.bb_2_2 = BasicBlockGumbel(conv_func, hw_model, 32, 32, stride=1, bn=bn, **kwargs)
-        self.bb_3_0 = BasicBlockGumbel(conv_func, hw_model, 32, 64, stride=2, bn=bn, **kwargs)
-        self.bb_3_1 = BasicBlockGumbel(conv_func, hw_model, 64, 64, stride=1, bn=bn, **kwargs)
-        self.bb_3_2 = BasicBlockGumbel(conv_func, hw_model, 64, 64, stride=1, bn=bn, **kwargs)
+        self.bb_1_0 = BasicBlockGumbel(conv_func, hw_model, is_searchable[:2], 16, 16, stride=1,
+                                       bn=bn, **kwargs)
+        self.bb_1_1 = BasicBlockGumbel(conv_func, hw_model, is_searchable[2:4], 16, 16, stride=1,
+                                       bn=bn, **kwargs)
+        self.bb_1_2 = BasicBlockGumbel(conv_func, hw_model, is_searchable[4:6], 16, 16, stride=1,
+                                       bn=bn, **kwargs)
+        self.bb_2_0 = BasicBlockGumbel(conv_func, hw_model, is_searchable[6:9], 16, 32, stride=2,
+                                       bn=bn, **kwargs)
+        self.bb_2_1 = BasicBlockGumbel(conv_func, hw_model, is_searchable[9:11], 32, 32, stride=1,
+                                       bn=bn, **kwargs)
+        self.bb_2_2 = BasicBlockGumbel(conv_func, hw_model, is_searchable[11:13], 32, 32, stride=1,
+                                       bn=bn, **kwargs)
+        self.bb_3_0 = BasicBlockGumbel(conv_func, hw_model, is_searchable[13:16], 32, 64, stride=2,
+                                       bn=bn, **kwargs)
+        self.bb_3_1 = BasicBlockGumbel(conv_func, hw_model, is_searchable[16:18], 64, 64, stride=1,
+                                       bn=bn, **kwargs)
+        self.bb_3_2 = BasicBlockGumbel(conv_func, hw_model, is_searchable[18:20], 64, 64, stride=1,
+                                       bn=bn, **kwargs)
         self.pool = nn.AvgPool2d(kernel_size=8)
 
     def forward(self, x, temp, is_hard):
@@ -84,20 +99,22 @@ class BackboneTiny(nn.Module):
 
 
 class BasicBlockGumbel(nn.Module):
-    def __init__(self, conv_func, hw_model, inplanes, planes,
+    def __init__(self, conv_func, hw_model, is_searchable, inplanes, planes,
                  stride=1, downsample=None, bn=True, **kwargs):
         self.bn = bn
         self.use_bias = not bn
         super().__init__()
-        self.conv1 = conv3x3(conv_func, hw_model, inplanes, planes,
+        self.conv1 = conv3x3(conv_func, hw_model, is_searchable[0], inplanes, planes,
                              stride=stride, bias=self.use_bias, **kwargs)
         if bn:
             self.bn1 = nn.BatchNorm2d(planes, affine=bn)
-        self.conv2 = conv3x3(conv_func, hw_model, planes, planes,
+        self.conv2 = conv3x3(conv_func, hw_model, is_searchable[1], planes, planes,
                              bias=self.use_bias, **kwargs)
         if bn:
             self.bn2 = nn.BatchNorm2d(planes)
         if stride != 1 or inplanes != planes:
+            if not is_searchable[2]:
+                kwargs['wbits'] = [8]
             self.downsample = conv_func(hw_model, inplanes, planes,
                                         kernel_size=1, stride=stride, groups=1, bias=self.use_bias,
                                         **kwargs)
@@ -130,7 +147,7 @@ class BasicBlockGumbel(nn.Module):
 
 
 class ResNet20(nn.Module):
-    def __init__(self, conv_func, hw_model,
+    def __init__(self, conv_func, hw_model, is_searchable,
                  search_fc=None, input_size=32, num_classes=10, bn=True, **kwargs):
         if 'abits' in kwargs:
             print('abits: {}'.format(kwargs['abits']))
@@ -151,12 +168,14 @@ class ResNet20(nn.Module):
         self.gumbel = kwargs.get('gumbel', False)
 
         # Model
-        self.conv1 = conv3x3(conv_func, hw_model, 3, 16, stride=1, groups=1,
+        self.conv1 = conv3x3(conv_func, hw_model, is_searchable[0], 3, 16, stride=1, groups=1,
                              bias=self.use_bias, **kwargs)
         if bn:
             self.bn1 = nn.BatchNorm2d(16)
-        self.backbone = Backbone20(conv_func, hw_model, input_size, bn, **kwargs)
-        self.fc = fc(conv_func, hw_model, 64, num_classes, search_fc=self.search_fc, **kwargs)
+        self.backbone = Backbone20(conv_func, hw_model, is_searchable[1:-1], input_size,
+                                   bn, **kwargs)
+        self.fc = fc(conv_func, hw_model, is_searchable[-1], 64, num_classes,
+                     search_fc=self.search_fc, **kwargs)
 
         # Initialize weights
         for m in self.modules():
@@ -385,17 +404,36 @@ def mixres8_diana(arch_cfg_path, **kwargs):
     return search_model
 
 
-def mixres20_diana(arch_cfg_path, **kwargs):
+def mixres20_diana_full(arch_cfg_path, **kwargs):
+    # NB: 2 bits is equivalent for ternary weights!!
+    search_model = ResNet20(
+        qm.MultiPrecActivConv2d, hw.diana(), [True]*22,
+        search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
+        share_weight=True, **kwargs)
+    return _mixres20_diana(arch_cfg_path, search_model)
+
+
+def mixres20_diana_reduced(arch_cfg_path, **kwargs):
+    is_searchable = utils.detect_ad_tradeoff(quantres20_fp(None), torch.rand((1, 3, 32, 32)))
+    # NB: 2 bits is equivalent for ternary weights!!
+    search_model = ResNet20(
+        qm.MultiPrecActivConv2d, hw.diana(), is_searchable,
+        search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
+        share_weight=True, **kwargs)
+    return _mixres20_diana(arch_cfg_path, search_model)
+
+
+def _mixres20_diana(arch_cfg_path, search_model):
     # Check `arch_cfg_path` existence
     if not Path(arch_cfg_path).exists():
         print(f"The file {arch_cfg_path} does not exist.")
         raise FileNotFoundError
 
-    # NB: 2 bits is equivalent for ternary weights!!
-    search_model = ResNet20(
-        qm.MultiPrecActivConv2d, hw.diana(),
-        search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
-        share_weight=True, **kwargs)
+    # # NB: 2 bits is equivalent for ternary weights!!
+    # search_model = ResNet20(
+    #     qm.MultiPrecActivConv2d, hw.diana(),
+    #     search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
+    #     share_weight=True, **kwargs)
 
     # Get folded pretrained model
     folded_fp_model = quantres20_fp_foldbn(arch_cfg_path)
