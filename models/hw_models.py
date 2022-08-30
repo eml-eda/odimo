@@ -60,13 +60,10 @@ class GateSTE(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         ch, th = ctx.saved_tensors
-        grad_input = grad_output.clone()
-        grad_input.masked_fill_(ch.le(0), 0)
-        grad_input.masked_fill_(ch.ge(th.data), 0)
-        # return grad_output, None
-        # smooth step grad with log derivative
-        # grad = 1 / (grad_input + 1)
-        grad = grad_input
+        grad = grad_output.clone()
+        grad = 1 / (grad + 1)  # smooth step grad with log derivative
+        grad.masked_fill_(ch.le(0), 0)
+        grad.masked_fill_(ch.ge(th.data), 0)
         return grad, None
 
 

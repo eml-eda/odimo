@@ -235,7 +235,7 @@ def main_worker(gpu, ngpus_per_node, args):
         #     train_sampler = None
         train_sampler = None
 
-        data_dir = args.data.parent.parent / 'data'
+        data_dir = args.data.parent.parent.parent / 'data'
 
         train_set = torchvision.datasets.CIFAR10(root=data_dir, train=True,
                                                  download=True, transform=transform_train)
@@ -404,7 +404,7 @@ def train(train_loader, val_loader, test_loader, model, criterion,
         # If not None split data accordingly to args.arch_data_split
         # (1 - args.arch_data_split) is the fraction of training data used for normal weights
         # (args.arch_data_split) is the fraction of training data used for alpha weights
-        if args.arch_data_split is not None:
+        if args.arch_data_split is not None and args.arch_data_split != 0:
             # Randomly split data
             data = train_loader.dataset
             len_data_a = int(len(data) * args.arch_data_split)
@@ -415,7 +415,7 @@ def train(train_loader, val_loader, test_loader, model, criterion,
                 num_workers=args.workers, pin_memory=True)
             train_loader_a = torch.utils.data.DataLoader(
                 data_a, batch_size=args.batch_size, shuffle=True,
-                num_workers=args.workers, pin_memory=True)
+                num_workers=args.workers, pin_memory=True, drop_last=False)
             # Freeze normal weights q_params and train on alpha weights
             model = freeze_weights(model, freeze=True)
             train_epoch(train_loader_a, model, criterion, optimizer, arch_optimizer,
@@ -547,6 +547,8 @@ def train_epoch(train_loader, model, criterion,
             loss_complexity = torch.tensor(0.)
         complexity_losses.update(loss_complexity.item(), images.size(0))
         loss = task_loss + loss_complexity
+        # loss_complexity = torch.tensor(0.)
+        # loss = task_loss
 
         # compute gradient and do SGD step
         optimizer.zero_grad()

@@ -51,6 +51,7 @@ def profile_cycles(arch,
         if not path.exists():
             raise ValueError(f'{path} does not exists!')
         state_dict = torch.load(path)['state_dict']
+        strength = path.parts[-3].split('_')[-1]
 
     if plot_net_graph:
         gd = FxGraphDrawer(gm, str(arch))
@@ -164,13 +165,13 @@ def profile_cycles(arch,
                  label="NAS latency", hatch="//")
         fig.legend()
         fig.set_tight_layout(True)
-        fig.savefig(f'{str(arch)}_profile.png')
-        print(f'Discovered arch profile saved @ {str(arch)}_profile.png', end='\n')
+        fig.savefig(f'{str(arch)}_{strength}_profile.png')
+        print(f'Discovered arch profile saved @ {str(arch)}_{strength}_profile.png', end='\n')
     else:
         raise ValueError('To plot discovered arch detail you must provide proper "--path" arg')
 
     if save_pkl:
-        with open(f'details_{arch}.pickle', 'wb') as h:
+        with open(f'details_{str(arch)}_{strength}.pickle', 'wb') as h:
             pickle.dump(arch_details, h, protocol=pickle.HIGHEST_PROTOCOL)
 
     return arch_details

@@ -32,6 +32,7 @@ __all__ = [
     'quantres8_w2a7_true_foldbn',
     'quantres20_w2a8_true',
     'quantres20_w2a7_true_foldbn',
+    'quantres20_minlat_foldbn', 'quantres20_minlat_max8_foldbn',
     'quantres8_diana',
     'quantres8_diana_naive5', 'quantres8_diana_naive10', 'quantres8_diana_naive100',
     'quantres20_diana_reduced', 'quantres20_diana_full',
@@ -1194,6 +1195,103 @@ def quantres20_w2a7_true_foldbn(arch_cfg_path, **kwargs):
 
     # Init scale param
     utils.init_scale_param(q_model)
+
+    return q_model
+
+
+def quantres20_minlat_foldbn(arch_cfg_path, **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[7]] * 22, [[8]] * 22
+    # Set weights precision to 2bit in layers where analog is faster
+    archws[8] = [2]
+    archws[10] = [2]
+    archws[11] = [2]
+    archws[12] = [2]
+    archws[13] = [2]
+    archws[14] = [2]
+    archws[15] = [2]
+    archws[17] = [2]
+    archws[18] = [2]
+    archws[19] = [2]
+    archws[20] = [2]
+    s_up = kwargs.pop('analog_speedup', 5.)
+    fp_model = ResNet20(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                        archws, archas, qtz_fc='multi', **kwargs)
+    q_model = ResNet20(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
+                       archws, archas, qtz_fc='multi', bn=False, **kwargs)
+
+    # Load pretrained fp state_dict
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_model.load_state_dict(fp_state_dict)
+    # Fold bn
+    fp_model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(fp_model)
+    folded_state_dict = folded_model.state_dict()
+
+    # Delete fp and folded model
+    del fp_model, folded_model
+
+    # Translate folded fp state dict in a format compatible with quantized layers
+    q_state_dict = utils.fpfold_to_q(folded_state_dict)
+    # Load folded fp state dict in quantized model
+    q_model.load_state_dict(q_state_dict, strict=False)
+
+    # Init scale param
+    utils.init_scale_param(q_model)
+
+    return q_model
+
+
+def quantres20_minlat_max8_foldbn(arch_cfg_path, **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[7]] * 22, [[8]] * 22
+    # Set weights precision to 2bit in layers where analog is faster
+    archws[8] = [8, 2]
+    archws[10] = [8, 2]
+    archws[11] = [8, 2]
+    archws[12] = [8, 2]
+    archws[13] = [8, 2]
+    archws[14] = [8, 2]
+    archws[15] = [8, 2]
+    archws[17] = [8, 2]
+    archws[18] = [8, 2]
+    archws[19] = [8, 2]
+    archws[20] = [8, 2]
+    s_up = kwargs.pop('analog_speedup', 5.)
+    fp_model = ResNet20(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                        archws, archas, qtz_fc='multi', **kwargs)
+    q_model = ResNet20(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
+                       archws, archas, qtz_fc='multi', bn=False, **kwargs)
+
+    # Load pretrained fp state_dict
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_model.load_state_dict(fp_state_dict)
+    # Fold bn
+    fp_model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(fp_model)
+    folded_state_dict = folded_model.state_dict()
+
+    # Delete fp and folded model
+    del fp_model, folded_model
+
+    # Translate folded fp state dict in a format compatible with quantized layers
+    q_state_dict = utils.fpfold_to_q(folded_state_dict)
+    # Load folded fp state dict in quantized model
+    q_model.load_state_dict(q_state_dict, strict=False)
+
+    # Init scale param
+    utils.init_scale_param(q_model)
+
+    # Fix 16 channels to 8bit prec in each layer to achieve min latency
+    utils.fix_ch_prec(q_model, prec=8, ch=16)
 
     return q_model
 
