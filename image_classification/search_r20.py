@@ -401,6 +401,8 @@ def train(train_loader, val_loader, test_loader, model, criterion,
         # if args.distributed:
         #    train_sampler.set_epoch(epoch)
 
+        t0 = time.time()
+
         # If not None split data accordingly to args.arch_data_split
         # (1 - args.arch_data_split) is the fraction of training data used for normal weights
         # (args.arch_data_split) is the fraction of training data used for alpha weights
@@ -429,6 +431,7 @@ def train(train_loader, val_loader, test_loader, model, criterion,
         else:
             train_epoch(train_loader, model, criterion, optimizer, arch_optimizer,
                         q_optimizer, epoch, args, temp, scope=scope)
+        print(f'Elapsed Time: {time.time()-t0}')
 
         scheduler.step()
         q_scheduler.step()

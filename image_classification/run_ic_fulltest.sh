@@ -33,7 +33,7 @@ if [[ "$3" == "search" ]]; then
     # NB: add --warmup-8bit if needed
     python3 search_r20.py ${path}/${arch}/model_${strength}/${timestamp} -a mix${arch} \
         -d cifar10 --arch-data-split ${split} \
-        --epochs 200 --step-epoch 50 -b 128 \
+        --epochs 200 --step-epoch 50 -b 128 -j 0 \
         --ac ${pretrained_model} --patience 50 \
         --lr 0.001 --lra 0.001 --wd 1e-4 \
         --ai same --cd ${strength} --rt weights \

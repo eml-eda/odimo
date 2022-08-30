@@ -210,7 +210,7 @@ def main_worker(gpu, ngpus_per_node, args):
         #     train_sampler = None
         train_sampler = None
 
-        data_dir = args.data.parent.parent / 'data'
+        data_dir = args.data.parent.parent.parent / 'data'
 
         train_set = torchvision.datasets.CIFAR10(root=data_dir, train=True,
                                                  download=True, transform=transform_train)
