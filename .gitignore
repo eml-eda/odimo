@@ -1,5 +1,5 @@
 __pycache__
-image_classification/data
+image_classification/cifar10/data
 wandb/
 log*
 *.pth.tar
@@ -7,3 +7,4 @@ log*
 build
 dist
 *.png
+*.pickle
