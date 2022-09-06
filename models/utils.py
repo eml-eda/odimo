@@ -60,6 +60,18 @@ def _replace_node_module(node, modules, new_module):
     setattr(modules[parent_name], name, new_module)
 
 
+def adapt_resnet18_statedict(pretrained_sd, model_sd):
+    new_dict = {key: val for key, val in model_sd.items()
+                if 'size_product' not in key and 'memory_size' not in key}
+    for (item_prtr, item_mdl) in zip(pretrained_sd.items(), new_dict.items()):
+        # print(item_prtr[0], item_prtr[1].shape)
+        # print(item_mdl[0], item_mdl[1].shape)
+        if 'fc' in item_prtr[0] and 'fc' in item_mdl[0]:
+            continue
+        new_dict[item_mdl[0]] = item_prtr[1]
+    return new_dict
+
+
 def adapt_scale_params(state_dict, model):
     new_dict = copy.deepcopy(state_dict)
     for key in state_dict.keys():

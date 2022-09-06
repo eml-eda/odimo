@@ -13,16 +13,20 @@ from torch.fx.passes.shape_prop import ShapeProp
 from torch.fx.passes.graph_drawer import FxGraphDrawer
 
 from models.model_diana import analog_cycles, digital_cycles
-from models.quant_resnet import quantres8_fp, quantres20_fp
+from models.quant_resnet import quantres8_fp, quantres20_fp, quantres18_fp
 
 _ARCH_FUNC = {
     'resnet8': quantres8_fp,
     'resnet20': quantres20_fp,
+    'resnet18-64': quantres18_fp,
+    'resnet18-224': quantres18_fp,
 }
 
 _INP_SHAPE = {
     'resnet8': (1, 3, 32, 32),
     'resnet20': (1, 3, 32, 32),
+    'resnet18-64': (1, 3, 64, 64),
+    'resnet18-224': (1, 3, 224, 224),
 }
 
 _BAR_WIDTH = 0.1
@@ -167,8 +171,6 @@ def profile_cycles(arch,
         fig.set_tight_layout(True)
         fig.savefig(f'{str(arch)}_{strength}_profile.png')
         print(f'Discovered arch profile saved @ {str(arch)}_{strength}_profile.png', end='\n')
-    else:
-        raise ValueError('To plot discovered arch detail you must provide proper "--path" arg')
 
     if save_pkl:
         with open(f'details_{str(arch)}_{strength}.pickle', 'wb') as h:

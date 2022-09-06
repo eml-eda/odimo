@@ -28,6 +28,9 @@ if model_name == 'mobilenetv1':
     rnd_input = torch.randn(1, 3, 96, 96)
 elif model_name in ['res20', 'res8']:
     rnd_input = torch.randn(1, 3, 32, 32)
+elif model_name == 'res18':
+    rnd_input = torch.randn(1, 3, 64, 64)
+    # rnd_input = torch.randn(1, 3, 224, 224)
 elif model_name == 'dscnn':
     rnd_input = torch.randn(1, 1, 49, 10)
 elif model_name == 'denseae':
