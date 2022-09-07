@@ -15,7 +15,7 @@ mkdir -p ${path}/${arch}/model_${strength}/${timestamp}
 
 export WANDB_MODE=offline
 
-pretrained_model="warmup_fp.pth.tar"
+pretrained_model="warmup_${input_res}.pth.tar"
 if [[ "$4" == "search" ]]; then
     echo Search
     split=0.0
