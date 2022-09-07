@@ -194,14 +194,14 @@ def main_worker(gpu, ngpus_per_node, args):
 
     if args.input_res == 224:
         transform_train = transforms.Compose([
-            transforms.Resize(224, interpolation=InterpolationMode.BICUBIC),
-            # transforms.CenterCrop(224),
-            # transforms.RandomHorizontalFlip(),
+            transforms.Resize(256, interpolation=InterpolationMode.BICUBIC),
+            transforms.CenterCrop(224),
+            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
         ])
         transform_test = transforms.Compose([
-            transforms.Resize(224, interpolation=InterpolationMode.BICUBIC),
-            # transforms.CenterCrop(224),
+            transforms.Resize(256, interpolation=InterpolationMode.BICUBIC),
+            transforms.CenterCrop(224),
             transforms.ToTensor(),
         ])
     else:  # input_res=64
@@ -221,7 +221,10 @@ def main_worker(gpu, ngpus_per_node, args):
     train_sampler = None
 
     data_dir = args.data.parent.parent.parent / 'data'
-    data = get_data(data_dir=data_dir, transforms=transform_train, test_transforms=transform_test)
+    data = get_data(data_dir=data_dir,
+                    val_split=0.2,
+                    transforms=transform_train,
+                    test_transforms=transform_test)
     train_loader, val_loader, test_loader = build_dataloaders(data,
                                                               num_workers=args.workers)
 
@@ -319,6 +322,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     best_epoch = args.start_epoch
     epoch_wout_improve = 0
+    is_best = False
 
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
@@ -328,7 +332,8 @@ def main_worker(gpu, ngpus_per_node, args):
         train(train_loader, model, criterion, optimizer, q_optimizer, epoch, args)
 
         # evaluate on validation set
-        acc1 = validate(val_loader, model, criterion, epoch, args)
+        if val_loader is not None:
+            acc1 = validate(val_loader, model, criterion, epoch, args)
         acc1_test = validate(test_loader, model, criterion, epoch, args)
 
         scheduler.step()
@@ -336,17 +341,18 @@ def main_worker(gpu, ngpus_per_node, args):
             q_scheduler.step()
 
         # remember best acc@1 and save checkpoint
-        is_best = acc1 > best_acc1
-        if is_best:
-            best_epoch = epoch
-            best_acc1 = acc1
-            best_acc1_test = acc1_test
-            epoch_wout_improve = 0
-            print(f'New best Acc_val: {best_acc1}')
-            print(f'New best Acc_test: {best_acc1_test}')
-        else:
-            epoch_wout_improve += 1
-            print(f'Epoch without improvement: {epoch_wout_improve}')
+        if val_loader is not None:
+            is_best = acc1 > best_acc1
+            if is_best:
+                best_epoch = epoch
+                best_acc1 = acc1
+                best_acc1_test = acc1_test
+                epoch_wout_improve = 0
+                print(f'New best Acc_val: {best_acc1}')
+                print(f'New best Acc_test: {best_acc1_test}')
+            else:
+                epoch_wout_improve += 1
+                print(f'Epoch without improvement: {epoch_wout_improve}')
 
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                                                     and args.rank % ngpus_per_node == 0):

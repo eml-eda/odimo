@@ -35,9 +35,12 @@ def get_data(data_dir=None,
         ds_train_val = ImageFolder(train_data_dir, transform=transforms)
 
     # Split train_val data in training and validation
-    val_len = int(val_split * len(ds_train_val))
-    train_len = len(ds_train_val) - val_len
-    ds_train, ds_val = random_split(ds_train_val, [train_len, val_len])
+    if val_split != 0.0:
+        val_len = int(val_split * len(ds_train_val))
+        train_len = len(ds_train_val) - val_len
+        ds_train, ds_val = random_split(ds_train_val, [train_len, val_len])
+    else:
+        ds_train, ds_val = ds_train_val, None
 
     # Validation data are here used as Test data
     test_data_dir = data_dir / 'tiny-imagenet-200' / 'val'
@@ -79,13 +82,16 @@ def build_dataloaders(datasets: Tuple[Dataset, ...],
         pin_memory=True,
         num_workers=num_workers,
     )
-    val_loader = DataLoader(
-        val_set,
-        batch_size=batch_size,
-        shuffle=True,
-        pin_memory=True,
-        num_workers=num_workers,
-    )
+    if val_set is not None:
+        val_loader = DataLoader(
+            val_set,
+            batch_size=batch_size,
+            shuffle=True,
+            pin_memory=True,
+            num_workers=num_workers,
+        )
+    else:
+        val_loader = None
     test_loader = DataLoader(
         test_set,
         batch_size=batch_size,

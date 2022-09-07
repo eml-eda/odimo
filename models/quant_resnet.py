@@ -47,7 +47,7 @@ __all__ = [
 class Backbone18(nn.Module):
     def __init__(self, conv_func, input_size, bn, abits, wbits, **kwargs):
         super().__init__()
-        self.max_pool = nn.MaxPool2d(kernel_size=3, stride=2)
+        self.max_pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.bb_1_0 = BasicBlock(conv_func, 64, 64, wbits[:2], abits[:2], stride=1,
                                  bn=bn, **kwargs)
         self.bb_1_1 = BasicBlock(conv_func, 64, 64, wbits[2:4], abits[2:4], stride=1,
@@ -64,7 +64,7 @@ class Backbone18(nn.Module):
                                  bn=bn, **kwargs)
         self.bb_4_1 = BasicBlock(conv_func, 512, 512, wbits[15:17], abits[15:17], stride=1,
                                  bn=bn, **kwargs)
-        self.avg_pool = nn.AvgPool2d(kernel_size=input_size//2**5)
+        self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
 
     def forward(self, x):
         x = self.max_pool(x)
@@ -205,7 +205,7 @@ class ResNet18(nn.Module):
 
         # Model
         self.conv1 = conv_func(3, 64, abits=archas[0], wbits=archws[0],
-                               kernel_size=7, stride=2, bias=self.use_bias, padding=1,
+                               kernel_size=7, stride=2, bias=self.use_bias, padding=3,
                                groups=1, first_layer=False, **kwargs)
         if bn:
             self.bn1 = nn.BatchNorm2d(64)
