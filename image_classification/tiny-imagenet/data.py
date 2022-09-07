@@ -54,7 +54,7 @@ def get_data(data_dir=None,
             newpath = test_data_dir / folder
             newpath.mkdir(exist_ok=True)
             shutil.move(
-                test_data_dir / 'images' / image,
+                str(test_data_dir / 'images' / image),
                 newpath)
         shutil.rmtree(test_data_dir / 'images')
         (test_data_dir / 'val_annotations.txt').unlink()

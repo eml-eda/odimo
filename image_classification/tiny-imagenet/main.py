@@ -18,6 +18,7 @@ import torch.multiprocessing as mp
 import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.transforms as transforms
+from torchvision.transforms.functional import InterpolationMode
 
 import wandb
 
@@ -193,14 +194,14 @@ def main_worker(gpu, ngpus_per_node, args):
 
     if args.input_res == 224:
         transform_train = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.RandomHorizontalFlip(),
+            transforms.Resize(224, interpolation=InterpolationMode.BICUBIC),
+            # transforms.CenterCrop(224),
+            # transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
         ])
         transform_test = transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
+            transforms.Resize(224, interpolation=InterpolationMode.BICUBIC),
+            # transforms.CenterCrop(224),
             transforms.ToTensor(),
         ])
     else:  # input_res=64
