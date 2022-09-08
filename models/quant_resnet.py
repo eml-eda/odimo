@@ -37,17 +37,19 @@ __all__ = [
     'quantres8_diana',
     'quantres8_diana_naive5', 'quantres8_diana_naive10', 'quantres8_diana_naive100',
     'quantres20_diana_reduced', 'quantres20_diana_full',
-    'quantres18_fp', 'quantres18_fp_foldbn',
+    'quantres18_fp', 'quantres18_fp_reduced', 'quantres18_fp_prtrext', 'quantres18_fp_foldbn',
     'quantres18_w8a7_foldbn', 'quantres18_w2a7_foldbn', 'quantres18_w2a7_true_foldbn',
-    'quantres18_minlat64_foldbn',
+    'quantres18_minlat64_foldbn', 'quantres18_minlat64_max8_foldbn',
 ]
 
 
 # MR
 class Backbone18(nn.Module):
-    def __init__(self, conv_func, input_size, bn, abits, wbits, **kwargs):
+    def __init__(self, conv_func, input_size, bn, abits, wbits, std_head=True, **kwargs):
         super().__init__()
-        self.max_pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.std_head = std_head
+        if std_head:
+            self.max_pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.bb_1_0 = BasicBlock(conv_func, 64, 64, wbits[:2], abits[:2], stride=1,
                                  bn=bn, **kwargs)
         self.bb_1_1 = BasicBlock(conv_func, 64, 64, wbits[2:4], abits[2:4], stride=1,
@@ -67,7 +69,8 @@ class Backbone18(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
 
     def forward(self, x):
-        x = self.max_pool(x)
+        if self.std_head:
+            x = self.max_pool(x)
         x = self.bb_1_0(x)
         x = self.bb_1_1(x)
         x = self.bb_2_0(x)
@@ -187,7 +190,7 @@ class BasicBlock(nn.Module):
 class ResNet18(nn.Module):
 
     def __init__(self, conv_func, hw_model, archws, archas, qtz_fc=None,
-                 input_size=64, num_classes=200, bn=True, **kwargs):
+                 input_size=64, num_classes=200, bn=True, std_head=True, **kwargs):
         print('archas: {}'.format(archas))
         print('archws: {}'.format(archws))
 
@@ -204,13 +207,19 @@ class ResNet18(nn.Module):
         super().__init__()
 
         # Model
-        self.conv1 = conv_func(3, 64, abits=archas[0], wbits=archws[0],
-                               kernel_size=7, stride=2, bias=self.use_bias, padding=3,
-                               groups=1, first_layer=False, **kwargs)
+        if std_head:
+            self.conv1 = conv_func(3, 64, abits=archas[0], wbits=archws[0],
+                                   kernel_size=7, stride=2, bias=self.use_bias, padding=3,
+                                   groups=1, first_layer=False, **kwargs)
+        else:
+            self.conv1 = conv_func(3, 64, abits=archas[0], wbits=archws[0],
+                                   kernel_size=3, stride=1, bias=self.use_bias, padding=1,
+                                   groups=1, first_layer=False, **kwargs)
         if bn:
             self.bn1 = nn.BatchNorm2d(64)
         self.backbone = Backbone18(
-            conv_func, input_size, bn, abits=archas[1:-1], wbits=archws[1:-1], **kwargs)
+            conv_func, input_size, bn, abits=archas[1:-1], wbits=archws[1:-1],
+            std_head=std_head, **kwargs)
         self.fc = conv_func(
             512, num_classes, abits=archas[-1], wbits=archws[-1],
             kernel_size=1, stride=1, groups=1, bias=True, fc=self.qtz_fc, **kwargs)
@@ -572,6 +581,36 @@ def quantres18_fp(arch_cfg_path, **kwargs):
                      archws, archas, qtz_fc='multi', **kwargs)
     state_dict = utils.adapt_resnet18_statedict(
         pretrained_model.state_dict(), model.state_dict())
+    model.load_state_dict(state_dict, strict=False)
+    return model
+
+
+def quantres18_fp_reduced(arch_cfg_path, **kwargs):
+    archas, archws = [[8]] * 21, [[8]] * 21
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+    fp224_state_dict = torch.load(arch_cfg_path)['state_dict']
+    model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                     archws, archas, qtz_fc='multi', std_head=False, **kwargs)
+    state_dict = utils.adapt_resnet18_statedict(
+        fp224_state_dict, model.state_dict(), skip_inp=True)
+    model.load_state_dict(state_dict, strict=False)
+    return model
+
+
+def quantres18_fp_prtrext(arch_cfg_path, **kwargs):
+    archas, archws = [[8]] * 21, [[8]] * 21
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+    fp224_state_dict = torch.load(arch_cfg_path)['state_dict']
+    model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                     archws, archas, qtz_fc='multi', **kwargs)
+    state_dict = utils.adapt_resnet18_statedict(
+        fp224_state_dict, model.state_dict())
     model.load_state_dict(state_dict, strict=False)
     return model
 
@@ -1570,6 +1609,48 @@ def quantres20_minlat_max8_foldbn(arch_cfg_path, **kwargs):
     fp_model = ResNet20(qm.FpConv2d, hw.diana(analog_speedup=5.),
                         archws, archas, qtz_fc='multi', **kwargs)
     q_model = ResNet20(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
+                       archws, archas, qtz_fc='multi', bn=False, **kwargs)
+
+    # Load pretrained fp state_dict
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_model.load_state_dict(fp_state_dict)
+    # Fold bn
+    fp_model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(fp_model)
+    folded_state_dict = folded_model.state_dict()
+
+    # Delete fp and folded model
+    del fp_model, folded_model
+
+    # Translate folded fp state dict in a format compatible with quantized layers
+    q_state_dict = utils.fpfold_to_q(folded_state_dict)
+    # Load folded fp state dict in quantized model
+    q_model.load_state_dict(q_state_dict, strict=False)
+
+    # Init scale param
+    utils.init_scale_param(q_model)
+
+    # Fix 16 channels to 8bit prec in each layer to achieve min latency
+    utils.fix_ch_prec(q_model, prec=8, ch=16)
+
+    return q_model
+
+
+def quantres18_minlat64_max8_foldbn(arch_cfg_path, **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[7]] * 21, [[8, 2]] * 21
+    # Set weights precision to 8bit in layers where digital is faster
+    archws[7] = [8]
+    archws[12] = [8]
+    archws[20] = [8]
+    s_up = kwargs.pop('analog_speedup', 5.)
+    fp_model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                        archws, archas, qtz_fc='multi', **kwargs)
+    q_model = ResNet18(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                        archws, archas, qtz_fc='multi', bn=False, **kwargs)
 
     # Load pretrained fp state_dict

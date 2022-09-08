@@ -60,12 +60,18 @@ def _replace_node_module(node, modules, new_module):
     setattr(modules[parent_name], name, new_module)
 
 
-def adapt_resnet18_statedict(pretrained_sd, model_sd):
+def adapt_resnet18_statedict(pretrained_sd, model_sd, skip_inp=False):
     new_dict = {key: val for key, val in model_sd.items()
                 if 'size_product' not in key and 'memory_size' not in key}
+    pretrained_sd = {key: val for key, val in pretrained_sd.items()
+                     if 'size_product' not in key and 'memory_size' not in key}
     for (item_prtr, item_mdl) in zip(pretrained_sd.items(), new_dict.items()):
         # print(item_prtr[0], item_prtr[1].shape)
         # print(item_mdl[0], item_mdl[1].shape)
+        # import pdb; pdb.set_trace()
+        if skip_inp:
+            skip_inp = False
+            continue
         if 'fc' in item_prtr[0] and 'fc' in item_mdl[0]:
             continue
         new_dict[item_mdl[0]] = item_prtr[1]

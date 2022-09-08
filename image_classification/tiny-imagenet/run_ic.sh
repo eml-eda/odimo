@@ -41,6 +41,7 @@ if [[ "$5" == "ft" ]]; then
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/${timestamp}/log_finetune_${strength}.txt
 else
     echo From-Scratch
+    pretrained_model="warmup_224.pth.tar"
     python3 main.py ${path}/${arch}/model_${strength}/${timestamp} -a quant${arch} \
         --input-res ${input_res} \
         --epochs 15 --step-epoch 10 -b 100 --patience 10 \
