@@ -13,12 +13,14 @@ from torch.fx.passes.shape_prop import ShapeProp
 from torch.fx.passes.graph_drawer import FxGraphDrawer
 
 from models.model_diana import analog_cycles, digital_cycles
-from models.quant_resnet import quantres8_fp, quantres20_fp, quantres18_fp
+from models.quant_resnet import quantres8_fp, quantres20_fp, \
+    quantres18_fp, quantres18_fp_reduced
 
 _ARCH_FUNC = {
     'resnet8': quantres8_fp,
     'resnet20': quantres20_fp,
     'resnet18-64': quantres18_fp,
+    'resnet18-64-reduced': quantres18_fp_reduced,
     'resnet18-224': quantres18_fp,
 }
 
@@ -26,6 +28,7 @@ _INP_SHAPE = {
     'resnet8': (1, 3, 32, 32),
     'resnet20': (1, 3, 32, 32),
     'resnet18-64': (1, 3, 64, 64),
+    'resnet18-64-reduced': (1, 3, 64, 64),
     'resnet18-224': (1, 3, 224, 224),
 }
 

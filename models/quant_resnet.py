@@ -587,16 +587,18 @@ def quantres18_fp(arch_cfg_path, **kwargs):
 
 def quantres18_fp_reduced(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 21, [[8]] * 21
-    # Check `arch_cfg_path` existence
-    if not Path(arch_cfg_path).exists():
-        print(f"The file {arch_cfg_path} does not exist.")
-        raise FileNotFoundError
-    fp224_state_dict = torch.load(arch_cfg_path)['state_dict']
     model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
                      archws, archas, qtz_fc='multi', std_head=False, **kwargs)
-    state_dict = utils.adapt_resnet18_statedict(
-        fp224_state_dict, model.state_dict(), skip_inp=True)
-    model.load_state_dict(state_dict, strict=False)
+    # Check `arch_cfg_path` existence
+    if arch_cfg_path is not None:
+        if Path(arch_cfg_path).exists():
+            # print(f"The file {arch_cfg_path} does not exist.")
+            # raise FileNotFoundError
+            fp224_state_dict = torch.load(arch_cfg_path)['state_dict']
+            state_dict = utils.adapt_resnet18_statedict(
+                fp224_state_dict, model.state_dict(), skip_inp=True)
+            model.load_state_dict(state_dict, strict=False)
+
     return model
 
 
@@ -896,10 +898,11 @@ def quantres18_w8a7_foldbn(arch_cfg_path, **kwargs):
 
     archas, archws = [[7]] * 21, [[8]] * 21
     s_up = kwargs.pop('analog_speedup', 5.)
+    std_head = kwargs.pop('std_head', True)
     fp_model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
-                        archws, archas, qtz_fc='multi', **kwargs)
+                        archws, archas, qtz_fc='multi', std_head=std_head, **kwargs)
     q_model = ResNet18(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
-                       archws, archas, qtz_fc='multi', bn=False, **kwargs)
+                       archws, archas, qtz_fc='multi', bn=False, std_head=std_head, **kwargs)
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     fp_model.load_state_dict(fp_state_dict)
@@ -1247,10 +1250,11 @@ def quantres18_w2a7_foldbn(arch_cfg_path, **kwargs):
     archws[0] = [8]
     archws[-1] = [8]
     s_up = kwargs.pop('analog_speedup', 5.)
+    std_head = kwargs.pop('std_head', True)
     fp_model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
-                        archws, archas, qtz_fc='multi', **kwargs)
+                        archws, archas, qtz_fc='multi', std_head=std_head, **kwargs)
     q_model = ResNet18(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
-                       archws, archas, qtz_fc='multi', bn=False, **kwargs)
+                       archws, archas, qtz_fc='multi', bn=False, std_head=std_head, **kwargs)
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     fp_model.load_state_dict(fp_state_dict)
@@ -1474,10 +1478,11 @@ def quantres18_w2a7_true_foldbn(arch_cfg_path, **kwargs):
 
     archas, archws = [[7]] * 21, [[2]] * 21
     s_up = kwargs.pop('analog_speedup', 5.)
+    std_head = kwargs.pop('std_head', True)
     fp_model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
-                        archws, archas, qtz_fc='multi', **kwargs)
+                        archws, archas, qtz_fc='multi', std_head=std_head, **kwargs)
     q_model = ResNet18(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
-                       archws, archas, qtz_fc='multi', bn=False, **kwargs)
+                       archws, archas, qtz_fc='multi', bn=False, std_head=std_head, **kwargs)
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     fp_model.load_state_dict(fp_state_dict)
@@ -1553,16 +1558,18 @@ def quantres18_minlat64_foldbn(arch_cfg_path, **kwargs):
         print(f"The file {arch_cfg_path} does not exist.")
         raise FileNotFoundError
 
+    std_head = kwargs.pop('std_head', True)
     archas, archws = [[7]] * 21, [[2]] * 21
     # Set weights precision to 8bit in layers where digital is faster
-    archws[7] = [8]
-    archws[12] = [8]
+    if std_head:
+        archws[7] = [8]
+        archws[12] = [8]
     archws[20] = [8]
     s_up = kwargs.pop('analog_speedup', 5.)
     fp_model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
-                        archws, archas, qtz_fc='multi', **kwargs)
+                        archws, archas, qtz_fc='multi', std_head=std_head, **kwargs)
     q_model = ResNet18(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
-                       archws, archas, qtz_fc='multi', bn=False, **kwargs)
+                       archws, archas, qtz_fc='multi', bn=False, std_head=std_head, **kwargs)
 
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']

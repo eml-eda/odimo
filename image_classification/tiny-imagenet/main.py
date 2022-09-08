@@ -42,6 +42,8 @@ inp_res = [64, 224]
 parser.add_argument('--input-res', default=224, type=int, metavar='N',
                     choices=inp_res,
                     help=f'input resolution: {*inp_res,} (default: 224)')
+parser.add_argument('--std-head', default=True, action='store_false',
+                    help='Whether to use reduced model')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet8',
                     choices=model_names,
                     help='model architecture: ' +
@@ -238,7 +240,7 @@ def main_worker(gpu, ngpus_per_node, args):
     model_fn = models.__dict__[args.arch]
     model = model_fn(
         args.arch_cfg, num_classes=num_classes,
-        input_size=args.input_res, fine_tune=args.fine_tune)
+        input_size=args.input_res, fine_tune=args.fine_tune, std_head=args.std_head)
 
     if args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
