@@ -42,8 +42,8 @@ inp_res = [64, 224]
 parser.add_argument('--input-res', default=224, type=int, metavar='N',
                     choices=inp_res,
                     help=f'input resolution: {*inp_res,} (default: 224)')
-parser.add_argument('--std-head', default=True, action='store_false',
-                    help='Whether to use reduced model')
+parser.add_argument('--no-std-head', default=True, action='store_false',
+                    dest='std_head', help='Whether to use reduced model')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet8',
                     choices=model_names,
                     help='model architecture: ' +

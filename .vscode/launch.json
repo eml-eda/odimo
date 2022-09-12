@@ -180,6 +180,32 @@
             ]
         },
         {
+            "name": "Python: res18_w2a7_foldbn",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/image_classification/tiny-imagenet",
+            "args": [
+                "res18_w2a7_foldbn/model_debug",
+                "-a", "quantres18_w2a7_foldbn",
+                "--ac", "warmup_64red8bit.pth.tar",
+                "--input-res", "64",
+                "--no-std-head",
+                "--epochs", "15",
+                "--step-epoch", "10",
+                "-b", "100",
+                "--workers", "0",
+                "--patience", "5",
+                "--lr", "0.001",
+                "--lrq", "0.00001",
+                "--wd", "1e-4",
+                "--seed", "42",
+                "--gpu", "0"
+            ]
+        },
+        {
             "name": "Python: res8_w8a8_foldbn",
             "type": "python",
             "request": "launch",
