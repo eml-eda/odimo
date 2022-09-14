@@ -1821,9 +1821,10 @@ def quantres18_diana_full(arch_cfg_path, **kwargs):
 
 
 def quantres18_diana_reduced(arch_cfg_path, **kwargs):
+    res = kwargs['input_size']
     is_searchable = utils.detect_ad_tradeoff(
-        quantres18_fp(None, pretrained=False), 
-        torch.rand((1, 3, 32, 32)))
+        quantres18_fp(None, pretrained=False),
+        torch.rand((1, 3, res, res)))
 
     wbits, abits = [8, 2], [7]
 
