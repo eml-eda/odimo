@@ -1813,6 +1813,7 @@ def quantres18_diana_full(arch_cfg_path, **kwargs):
     assert len(archws) == 21  # 10 instead of 8 because conv1 and fc weights are also quantized
     ##
 
+    kwargs.pop('analog_speedup', 5.)
     model = ResNet18(qm.QuantMultiPrecActivConv2d, hw.diana(),
                      archws, archas, qtz_fc='multi', bn=False, **kwargs)
 

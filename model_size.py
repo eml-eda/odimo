@@ -19,10 +19,15 @@ print(args)
 
 # Build and Load pretrained model if specified
 if args.pretrained_model is not None:
-    model = models.__dict__[args.arch](
-        args.pretrained_model, num_classes=args.num_classes,
-        fine_tune=False, analog_speedup=args.analog_speedup,
-        std_head=args.std_head)
+    if 'mix' in args.arch:
+        model = models.__dict__[args.arch](
+            args.pretrained_model, num_classes=args.num_classes,
+            )
+    else:
+        model = models.__dict__[args.arch](
+            args.pretrained_model, num_classes=args.num_classes,
+            fine_tune=False, analog_speedup=args.analog_speedup,
+            std_head=args.std_head)
 else:
     model = models.__dict__[args.arch](
         '', num_classes=args.num_classes, analog_speedup=args.analog_speedup)
