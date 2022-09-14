@@ -575,9 +575,9 @@ def quantres20_fp(arch_cfg_path, **kwargs):
     return model
 
 
-def quantres18_fp(arch_cfg_path, **kwargs):
+def quantres18_fp(arch_cfg_path, pretrained=True, **kwargs):
     archas, archws = [[8]] * 21, [[8]] * 21
-    pretrained_model = torchvision.models.resnet18(pretrained=True)
+    pretrained_model = torchvision.models.resnet18(pretrained=pretrained)
     model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
                      archws, archas, qtz_fc='multi', **kwargs)
     state_dict = utils.adapt_resnet18_statedict(
@@ -1821,7 +1821,9 @@ def quantres18_diana_full(arch_cfg_path, **kwargs):
 
 
 def quantres18_diana_reduced(arch_cfg_path, **kwargs):
-    is_searchable = utils.detect_ad_tradeoff(quantres18_fp(None), torch.rand((1, 3, 32, 32)))
+    is_searchable = utils.detect_ad_tradeoff(
+        quantres18_fp(None, pretrained=False), 
+        torch.rand((1, 3, 32, 32)))
 
     wbits, abits = [8, 2], [7]
 
