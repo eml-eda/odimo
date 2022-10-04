@@ -90,6 +90,8 @@ def _digital_cycles(**kwargs):
     k_y = kwargs['k_y']
     out_x = kwargs['out_x']
     out_y = kwargs['out_y']
+    # Depthwise:
+    # min(ch_eff, groups) * FloorSTE.apply(1, 16) * 1 * _floor(out_x, 16) * out_y * k_x * k_y
     cycles = FloorSTE.apply(ch_eff, 16) * ch_in * _floor(out_x, 16) * out_y * k_x * k_y
     cycles_load_store = out_x * out_y * (ch_eff + ch_in) / 8
     gate = GateSTE.apply(ch_eff, 1.)

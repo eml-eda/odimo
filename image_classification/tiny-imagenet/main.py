@@ -44,6 +44,8 @@ parser.add_argument('--input-res', default=224, type=int, metavar='N',
                     help=f'input resolution: {*inp_res,} (default: 224)')
 parser.add_argument('--no-std-head', default=True, action='store_false',
                     dest='std_head', help='Whether to use reduced model')
+parser.add_argument('--use-std-head', default=False, action='store_true',
+                    dest='std_head', help='Whether to use reduced model')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet8',
                     choices=model_names,
                     help='model architecture: ' +
@@ -59,6 +61,8 @@ parser.add_argument('--step-epoch', default=50, type=int, metavar='N',
                     help='number of epochs to decay learning rate')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
+parser.add_argument('--val-split', default=0.2, type=float,
+                    help='Percentage of training data to be used as validation set')
 parser.add_argument('-b', '--batch-size', default=128, type=int,
                     metavar='N',
                     help='mini-batch size (default: 128), this is the total '
@@ -208,7 +212,9 @@ def main_worker(gpu, ngpus_per_node, args):
         ])
     else:  # input_res=64
         transform_train = transforms.Compose([
-            transforms.RandomHorizontalFlip(),
+            # transforms.RandomHorizontalFlip(),
+            # transforms.RandAugment(),
+            transforms.AutoAugment(),
             transforms.ToTensor(),
         ])
 
@@ -224,7 +230,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     data_dir = args.data.parent.parent.parent / 'data'
     data = get_data(data_dir=data_dir,
-                    val_split=0.2,
+                    val_split=args.val_split,
                     transforms=transform_train,
                     test_transforms=transform_test)
     train_loader, val_loader, test_loader = build_dataloaders(data,
