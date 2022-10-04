@@ -212,9 +212,9 @@ def main_worker(gpu, ngpus_per_node, args):
         ])
     else:  # input_res=64
         transform_train = transforms.Compose([
-            # transforms.RandomHorizontalFlip(),
+            transforms.RandomHorizontalFlip(),
             # transforms.RandAugment(),
-            transforms.AutoAugment(),
+            # transforms.AutoAugment(),
             transforms.ToTensor(),
         ])
 

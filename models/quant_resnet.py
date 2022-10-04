@@ -580,8 +580,12 @@ def quantres18_fp(arch_cfg_path, pretrained=True, **kwargs):
     pretrained_model = torchvision.models.resnet18(pretrained=pretrained)
     model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
                      archws, archas, qtz_fc='multi', **kwargs)
-    state_dict = utils.adapt_resnet18_statedict(
-        pretrained_model.state_dict(), model.state_dict())
+    if kwargs['std_head']:
+        state_dict = utils.adapt_resnet18_statedict(
+            pretrained_model.state_dict(), model.state_dict())
+    else:
+        state_dict = utils.adapt_resnet18_statedict(
+            pretrained_model.state_dict(), model.state_dict(), skip_inp=True)
     model.load_state_dict(state_dict, strict=False)
     return model
 
