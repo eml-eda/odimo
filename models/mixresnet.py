@@ -3,6 +3,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from . import utils
 from . import quant_module as qm
@@ -117,9 +118,11 @@ class BackboneTiny(nn.Module):
 
 # MR
 class Backbone18(nn.Module):
-    def __init__(self, conv_func, hw_model, is_searchable, input_size, bn, **kwargs):
+    def __init__(self, conv_func, hw_model, is_searchable, input_size, bn, std_head=True, **kwargs):
         super().__init__()
-        self.max_pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.std_head = std_head
+        if std_head:
+            self.max_pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.bb_1_0 = BasicBlockGumbel(conv_func, hw_model, is_searchable[:2], 64, 64, stride=1,
                                        bn=bn, **kwargs)
         self.bb_1_1 = BasicBlockGumbel(conv_func, hw_model, is_searchable[2:4], 64, 64, stride=1,
@@ -139,7 +142,8 @@ class Backbone18(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
 
     def forward(self, x, temp, is_hard):
-        x = self.max_pool(x)
+        if self.std_head:
+            x = self.max_pool(x)
         x = self.bb_1_0(x, temp, is_hard)
         x = self.bb_1_1(x, temp, is_hard)
         x = self.bb_2_0(x, temp, is_hard)
@@ -148,7 +152,7 @@ class Backbone18(nn.Module):
         x = self.bb_3_1(x, temp, is_hard)
         x = self.bb_4_0(x, temp, is_hard)
         x = self.bb_4_1(x, temp, is_hard)
-        x = self.avg_pool(x)
+        x = self.avg_pool(F.relu(x))
         return x
 
 
@@ -176,12 +180,14 @@ class BasicBlockGumbel(nn.Module):
                 self.bn_ds = nn.BatchNorm2d(planes)
         else:
             self.downsample = None
+            # If not fp and no downsample op we need to quantize the residual branch
+            self.q = qm.QuantPaCTActiv(kwargs['abits'])
 
     def forward(self, x, temp, is_hard):
         if self.downsample is not None:
             residual = x
         else:
-            residual = x
+            residual, _ = self.q(x)
 
         out = self.conv1(x, temp, is_hard)
         if self.bn:
@@ -294,7 +300,8 @@ class ResNet20(nn.Module):
 
 class ResNet18(nn.Module):
     def __init__(self, conv_func, hw_model, is_searchable,
-                 search_fc=None, input_size=64, num_classes=200, bn=True, **kwargs):
+                 search_fc=None, input_size=64, num_classes=200, bn=True, std_head=True,
+                 **kwargs):
         if 'abits' in kwargs:
             print('abits: {}'.format(kwargs['abits']))
         if 'wbits' in kwargs:
@@ -314,14 +321,16 @@ class ResNet18(nn.Module):
         self.gumbel = kwargs.get('gumbel', False)
 
         # Model
-        self.conv1 = conv7x7(conv_func, hw_model, is_searchable[0], 3, 64, stride=2, groups=1,
-                             bias=self.use_bias, **kwargs)
+        if std_head:
+            self.conv1 = conv7x7(conv_func, hw_model, is_searchable[0], 3, 64, stride=2, groups=1,
+                                 bias=self.use_bias, **kwargs)
+        else:
+            self.conv1 = conv3x3(conv_func, hw_model, is_searchable[0], 3, 64, stride=1, groups=1,
+                                 bias=self.use_bias, **kwargs)
         if bn:
             self.bn1 = nn.BatchNorm2d(64)
         self.backbone = Backbone18(conv_func, hw_model, is_searchable[1:-1], input_size,
-                                   bn, **kwargs)
-        self.fc = fc(conv_func, hw_model, is_searchable[-1], 512, num_classes,
-                     search_fc=self.search_fc, **kwargs)
+                                   bn, std_head=std_head, **kwargs)
 
         # Initialize weights
         for m in self.modules():
@@ -333,6 +342,10 @@ class ResNet18(nn.Module):
                     m.weight.data.fill_(1)
                 if m.bias is not None:
                     m.bias.data.zero_()
+
+        # Final classifier
+        self.fc = fc(conv_func, hw_model, is_searchable[-1], 512, num_classes,
+                     search_fc=self.search_fc, **kwargs)
 
     def forward(self, x, temp, is_hard):
         x = self.conv1(x, temp, is_hard)
@@ -570,16 +583,18 @@ def mixres20_diana_reduced(arch_cfg_path, **kwargs):
 
 
 def mixres18_diana_full(arch_cfg_path, **kwargs):
+    std_head = kwargs.pop('std_head', True)
     # NB: 2 bits is equivalent for ternary weights!!
     search_model = ResNet18(
         qm.MultiPrecActivConv2d, hw.diana(), [True]*22,
         search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
-        share_weight=True, **kwargs)
+        share_weight=True, std_head=std_head, **kwargs)
     return _mixres18_diana(arch_cfg_path, search_model)
 
 
 def mixres18_diana_reduced(arch_cfg_path, **kwargs):
     res = kwargs['input_size']
+    std_head = kwargs.pop('std_head', True)
     is_searchable = utils.detect_ad_tradeoff(
         quantres18_fp(None, pretrained=False),
         torch.rand((1, 3, res, res)))
@@ -587,7 +602,7 @@ def mixres18_diana_reduced(arch_cfg_path, **kwargs):
     search_model = ResNet18(
         qm.MultiPrecActivConv2d, hw.diana(), is_searchable,
         search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
-        share_weight=True, **kwargs)
+        share_weight=True, std_head=std_head, **kwargs)
     return _mixres18_diana(arch_cfg_path, search_model)
 
 
