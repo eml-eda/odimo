@@ -46,11 +46,12 @@ if [[ "$6" == "ft" ]]; then
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/${timestamp}/log_finetune_${strength}.txt
 else
     echo From-Scratch
-    # pretrained_model="warmup_64red.pth.tar"
+    # pretrained_model="warmup_224.pth.tar"
+    pretrained_model="warmup_64red.pth.tar"
     python3 main.py ${path}/${arch}/model_${strength}/${timestamp} -a quant${arch} \
-        --input-res ${input_res} --no-std-head --val-split 0.0 \
+        --input-res ${input_res} --no-std-head --val-split 0.1 \
         --epochs 15 --step-epoch 10 -b 100 --patience 10 \
-        --lr 0.001 --wd 1e-4 \
-        --seed 42 --gpu 0 --workers 0 \
+        --lr 0.001 --wd 0e-0 \
+        --seed 42 --gpu 0 --workers 4 \
         --ac ${pretrained_model} | tee ${path}/${arch}/model_${strength}/${timestamp}/log_fromscratch_${strength}.txt
 fi

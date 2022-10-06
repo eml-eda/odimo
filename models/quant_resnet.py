@@ -4,6 +4,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision
 
 from . import utils
@@ -71,7 +72,7 @@ class Backbone18(nn.Module):
 
     def forward(self, x):
         if self.std_head:
-            x = self.max_pool(x)
+            x = self.max_pool(F.relu(x))
         x = self.bb_1_0(x)
         x = self.bb_1_1(x)
         x = self.bb_2_0(x)
@@ -80,7 +81,7 @@ class Backbone18(nn.Module):
         x = self.bb_3_1(x)
         x = self.bb_4_0(x)
         x = self.bb_4_1(x)
-        x = self.avg_pool(x)
+        x = self.avg_pool(F.relu(x))
         return x
 
 
@@ -147,6 +148,7 @@ class BasicBlock(nn.Module):
                  downsample=None, bn=True, **kwargs):
         self.bn = bn
         self.use_bias = not bn
+        self.fp = conv_func is qm.FpConv2d
         super().__init__()
         self.conv1 = conv_func(inplanes, planes, archws[0], archas[0], kernel_size=3, stride=stride,
                                groups=1, padding=1, bias=self.use_bias, **kwargs)
@@ -164,12 +166,19 @@ class BasicBlock(nn.Module):
                 self.bn_ds = nn.BatchNorm2d(planes)
         else:
             self.downsample = None
+            if not self.fp:
+                # If not fp and no downsample op we need to quantize the residual branch
+                self.q = qm.QuantPaCTActiv(archas[0])
 
     def forward(self, x):
         if self.downsample is not None:
             residual = x
         else:
-            residual = x
+            if self.fp:
+                residual = F.relu(x)
+            else:
+                # Here I need to quantize
+                residual, _ = self.q(x)
 
         out = self.conv1(x)
         if self.bn:
@@ -211,7 +220,7 @@ class ResNet18(nn.Module):
         if std_head:
             self.conv1 = conv_func(3, 64, abits=archas[0], wbits=archws[0],
                                    kernel_size=7, stride=2, bias=self.use_bias, padding=3,
-                                   groups=1, first_layer=False, **kwargs)
+                                   groups=1, first_layer=True, **kwargs)
         else:
             self.conv1 = conv_func(3, 64, abits=archas[0], wbits=archws[0],
                                    kernel_size=3, stride=1, bias=self.use_bias, padding=1,
@@ -221,20 +230,23 @@ class ResNet18(nn.Module):
         self.backbone = Backbone18(
             conv_func, input_size, bn, abits=archas[1:-1], wbits=archws[1:-1],
             std_head=std_head, **kwargs)
-        self.fc = conv_func(
-            512, num_classes, abits=archas[-1], wbits=archws[-1],
-            kernel_size=1, stride=1, groups=1, bias=True, fc=self.qtz_fc, **kwargs)
 
-        # Initialize weights
+        # Initialize bn and conv weights
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
+                # n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                # m.weight.data.normal_(0, math.sqrt(2. / n))
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
             elif isinstance(m, nn.BatchNorm2d):
                 if m.weight is not None:
                     m.weight.data.fill_(1)
                 if m.bias is not None:
                     m.bias.data.zero_()
+
+        # Final classifier
+        self.fc = conv_func(
+            512, num_classes, abits=archas[-1], wbits=archws[-1],
+            kernel_size=1, stride=1, groups=1, bias=True, fc=self.qtz_fc, **kwargs)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -587,13 +599,21 @@ def quantres18_fp(arch_cfg_path, pretrained=True, **kwargs):
         state_dict = utils.adapt_resnet18_statedict(
             pretrained_model.state_dict(), model.state_dict(), skip_inp=True)
     model.load_state_dict(state_dict, strict=False)
+
+    # model_1 = torchvision.models.resnet18(pretrained=pretrained)
+    # num_ftrs = model_1.fc.in_features
+    # model_1.fc = nn.Linear(num_ftrs, 200)
+
+    # m = model
+    # mr = model_1
+
     return model
 
 
 def quantres18_fp_reduced(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 21, [[8]] * 21
     model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
-                     archws, archas, qtz_fc='multi', std_head=False, **kwargs)
+                     archws, archas, qtz_fc='multi', **kwargs)
     # Check `arch_cfg_path` existence
     if arch_cfg_path is not None:
         if Path(arch_cfg_path).exists():

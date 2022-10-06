@@ -65,16 +65,16 @@ def adapt_resnet18_statedict(pretrained_sd, model_sd, skip_inp=False):
                 if 'size_product' not in key and 'memory_size' not in key}
     pretrained_sd = {key: val for key, val in pretrained_sd.items()
                      if 'size_product' not in key and 'memory_size' not in key}
-    for (item_prtr, item_mdl) in zip(pretrained_sd.items(), new_dict.items()):
+    for (item_pretr, item_mdl) in zip(pretrained_sd.items(), new_dict.items()):
         # print(item_prtr[0], item_prtr[1].shape)
         # print(item_mdl[0], item_mdl[1].shape)
         # import pdb; pdb.set_trace()
         if skip_inp:
             skip_inp = False
             continue
-        if 'fc' in item_prtr[0] and 'fc' in item_mdl[0]:
+        if 'fc' in item_pretr[0] and 'fc' in item_mdl[0]:
             continue
-        new_dict[item_mdl[0]] = item_prtr[1]
+        new_dict[item_mdl[0]] = item_pretr[1]
     return new_dict
 
 

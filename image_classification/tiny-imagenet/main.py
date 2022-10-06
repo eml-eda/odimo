@@ -200,13 +200,16 @@ def main_worker(gpu, ngpus_per_node, args):
 
     if args.input_res == 224:
         transform_train = transforms.Compose([
-            transforms.Resize(256, interpolation=InterpolationMode.BICUBIC),
+            # transforms.Resize(256, interpolation=InterpolationMode.BICUBIC),
+            transforms.Resize(256, interpolation=InterpolationMode.BILINEAR),
             transforms.CenterCrop(224),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
         ])
         transform_test = transforms.Compose([
-            transforms.Resize(256, interpolation=InterpolationMode.BICUBIC),
+            # transforms.Resize(256, interpolation=InterpolationMode.BICUBIC),
+            transforms.Resize(256, interpolation=InterpolationMode.BILINEAR),
+            transforms.Resize(256),
             transforms.CenterCrop(224),
             transforms.ToTensor(),
         ])

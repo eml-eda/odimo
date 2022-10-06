@@ -613,7 +613,7 @@ class FpConv2d(nn.Module):
         self.memory_size.copy_(memory_size(in_shape))
         # tmp = torch.tensor(self.filter_size * in_shape[-1] * in_shape[-2], dtype=torch.float)
         self.size_product.copy_(size_product(self.filter_size, in_shape))
-        if not self.first_layer:
+        if not self.first_layer or not self.fc:
             out = self.conv(self.relu(input))
         else:
             out = self.conv(input)
