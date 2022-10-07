@@ -124,7 +124,7 @@ def profile_cycles(arch,
         fig, axis = plt.subplots(n_layer, figsize=figsize)
 
         for idx, col in enumerate(df):
-            axis[idx].plot(df[col]['x_ch'], df[col]['analog_func'],
+            axis[idx].plot(df[col]['x_ch'], df[col]['analog_func'][::-1],
                            color='#ff595e', label='analog')
             axis[idx].plot(df[col]['x_ch'], df[col]['digital_func'],
                            color='#1982c4', label='digital')

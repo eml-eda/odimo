@@ -8,7 +8,7 @@ parser.add_argument('arch', type=str, help='Architecture name')
 parser.add_argument('--num-classes', type=int, help='Number of output classes')
 parser.add_argument('--input-res', type=int, default=None,
                     help='Input Resolution (used only for res18)')
-parser.add_argument('--std-head', default=True, action='store_false',
+parser.add_argument('--no-std-head', default=True, action='store_false', dest='std_head',
                     help='Whether to use std-head (used only for res18)')
 parser.add_argument('--analog-speedup', type=float, default=5.,
                     help='SpeedUp of analog wrt digital')

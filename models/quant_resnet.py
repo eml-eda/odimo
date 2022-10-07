@@ -271,19 +271,26 @@ class ResNet18(nn.Module):
                 abit = m.abits[0]
                 sum_bitw += size_product * wbit
 
-                # Define dict whit shape infos used to model accelerators perf
-                conv_shape = {
-                    'ch_in': m.ch_in,
-                    'ch_out': torch.tensor(m.ch_out),
-                    'k_x': m.k_x,
-                    'k_y': m.k_y,
-                    'out_x': m.out_x,
-                    'out_y': m.out_y,
-                    }
-                if wbit == 2:
-                    cycles = self.hw_model('analog', **conv_shape)
-                else:
-                    cycles = self.hw_model('digital', **conv_shape)
+                cycles_analog, cycles_digital = 0, 0
+                for idx, wb in enumerate(m.wbits):
+                    if len(m.wbits) > 1:
+                        ch_out = m.mix_weight.alpha_weight[idx].sum()
+                    else:
+                        ch_out = torch.tensor(m.ch_out)
+                    # Define dict whit shape infos used to model accelerators perf
+                    conv_shape = {
+                        'ch_in': m.ch_in,
+                        'ch_out': ch_out,
+                        'k_x': m.k_x,
+                        'k_y': m.k_y,
+                        'out_x': m.out_x,
+                        'out_y': m.out_y,
+                        }
+                    if wb == 2:
+                        cycles_analog = self.hw_model('analog', **conv_shape)
+                    else:
+                        cycles_digital = self.hw_model('digital', **conv_shape)
+                cycles = max(cycles_analog, cycles_digital)
 
                 bita = memory_size * abit
                 bitw = m.param_size * wbit
@@ -613,7 +620,7 @@ def quantres18_fp(arch_cfg_path, pretrained=True, **kwargs):
 def quantres18_fp_reduced(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 21, [[8]] * 21
     model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
-                     archws, archas, qtz_fc='multi', **kwargs)
+                     archws, archas, qtz_fc='multi', std_head=False, **kwargs)
     # Check `arch_cfg_path` existence
     if arch_cfg_path is not None:
         if Path(arch_cfg_path).exists():
@@ -1674,16 +1681,24 @@ def quantres18_minlat64_max8_foldbn(arch_cfg_path, **kwargs):
         print(f"The file {arch_cfg_path} does not exist.")
         raise FileNotFoundError
 
-    archas, archws = [[7]] * 21, [[8, 2]] * 21
+    std_head = kwargs.pop('std_head', True)
     # Set weights precision to 8bit in layers where digital is faster
-    archws[7] = [8]
-    archws[12] = [8]
+    if std_head:
+        archas, archws = [[7]] * 21, [[8, 2]] * 21
+        archws[7] = [8]
+        archws[12] = [8]
+    else:
+        archas, archws = [[7]] * 21, [[2]] * 21
+        archws[0] = [8, 2]
+        archws[7] = [8, 2]
+        archws[12] = [8, 2]
+        archws[15] = [8, 2]
     archws[20] = [8]
     s_up = kwargs.pop('analog_speedup', 5.)
     fp_model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
-                        archws, archas, qtz_fc='multi', **kwargs)
+                        archws, archas, qtz_fc='multi', std_head=std_head, **kwargs)
     q_model = ResNet18(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
-                       archws, archas, qtz_fc='multi', bn=False, **kwargs)
+                       archws, archas, qtz_fc='multi', bn=False, std_head=std_head, **kwargs)
 
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
@@ -1705,7 +1720,10 @@ def quantres18_minlat64_max8_foldbn(arch_cfg_path, **kwargs):
     utils.init_scale_param(q_model)
 
     # Fix 16 channels to 8bit prec in each layer to achieve min latency
-    utils.fix_ch_prec(q_model, prec=8, ch=16)
+    if std_head:
+        utils.fix_ch_prec(q_model, prec=8, ch=16)
+    else:
+        utils.fix_ch_prec(q_model, prec=8, ch=[24, 12, 40, 48])
 
     return q_model
 

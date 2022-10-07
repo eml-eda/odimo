@@ -119,15 +119,25 @@ def detect_ad_tradeoff(model, dummy_input):
 
 
 def fix_ch_prec(model, prec, ch):
+    i = 0
     with torch.no_grad():
         for name, module in model.named_modules():
             if isinstance(module, qm.QuantMultiPrecConv2d):
                 if module.alpha_weight.shape[0] > 1:
                     idx = module.bits.index(prec)
-                    module.alpha_weight[idx, :ch].fill_(1.)
-                    module.alpha_weight[idx+1, :ch].fill_(0.)
-                    module.alpha_weight[idx, ch:].fill_(0.)
-                    module.alpha_weight[idx+1, ch:].fill_(1.)
+                    if type(ch) is list:
+                        module.alpha_weight[idx, :ch[i]].fill_(1.)
+                        module.alpha_weight[idx+1, :ch[i]].fill_(0.)
+                        module.alpha_weight[idx, ch[i]:].fill_(0.)
+                        module.alpha_weight[idx+1, ch[i]:].fill_(1.)
+                    elif type(ch) is int:
+                        module.alpha_weight[idx, :ch].fill_(1.)
+                        module.alpha_weight[idx+1, :ch].fill_(0.)
+                        module.alpha_weight[idx, ch:].fill_(0.)
+                        module.alpha_weight[idx+1, ch:].fill_(1.)
+                    else:
+                        raise ValueError(f'Type {type(ch)} is not supported')
+                    i += 1
 
 
 # http://tinyurl.com/2p9a22kd <- copied from torch.fx experimental (torch v11.0)
