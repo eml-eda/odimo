@@ -589,7 +589,7 @@ def mixres18_diana_full(arch_cfg_path, **kwargs):
         qm.MultiPrecActivConv2d, hw.diana(), [True]*22,
         search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
         share_weight=True, std_head=std_head, **kwargs)
-    return _mixres18_diana(arch_cfg_path, search_model)
+    return _mixres18_diana(arch_cfg_path, search_model, std_head)
 
 
 def mixres18_diana_reduced(arch_cfg_path, **kwargs):
@@ -603,7 +603,7 @@ def mixres18_diana_reduced(arch_cfg_path, **kwargs):
         qm.MultiPrecActivConv2d, hw.diana(), is_searchable,
         search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
         share_weight=True, std_head=std_head, **kwargs)
-    return _mixres18_diana(arch_cfg_path, search_model)
+    return _mixres18_diana(arch_cfg_path, search_model, std_head)
 
 
 def _mixres20_diana(arch_cfg_path, search_model):
@@ -635,7 +635,7 @@ def _mixres20_diana(arch_cfg_path, search_model):
     return search_model
 
 
-def _mixres18_diana(arch_cfg_path, search_model):
+def _mixres18_diana(arch_cfg_path, search_model, std_head):
     # Check `arch_cfg_path` existence
     if not Path(arch_cfg_path).exists():
         print(f"The file {arch_cfg_path} does not exist.")
@@ -648,7 +648,7 @@ def _mixres18_diana(arch_cfg_path, search_model):
     #     share_weight=True, **kwargs)
 
     # Get folded pretrained model
-    folded_fp_model = quantres18_fp_foldbn(arch_cfg_path)
+    folded_fp_model = quantres18_fp_foldbn(arch_cfg_path, std_head=std_head)
     folded_state_dict = folded_fp_model.state_dict()
 
     # Delete folded model

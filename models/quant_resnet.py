@@ -680,7 +680,7 @@ def quantres20_fp_foldbn(arch_cfg_path, **kwargs):
     return folded_model
 
 
-def quantres18_fp_foldbn(arch_cfg_path, **kwargs):
+def quantres18_fp_foldbn(arch_cfg_path, std_head=True, **kwargs):
     # Check `arch_cfg_path` existence
     if not Path(arch_cfg_path).exists():
         print(f"The file {arch_cfg_path} does not exist.")
@@ -688,7 +688,7 @@ def quantres18_fp_foldbn(arch_cfg_path, **kwargs):
 
     archas, archws = [[8]] * 21, [[8]] * 21
     model = ResNet18(qm.FpConv2d, None,
-                     archws, archas, qtz_fc='multi', **kwargs)
+                     archws, archas, qtz_fc='multi', std_head=std_head, **kwargs)
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     model.load_state_dict(fp_state_dict)
 
@@ -1830,11 +1830,11 @@ def quantres18_diana_full(arch_cfg_path, **kwargs):
     best_arch, worst_arch = _load_arch_multi_prec(arch_cfg_path)
     archas = [abits for a in best_arch['alpha_activ']]
     archws = [wbits for w_ch in best_arch['alpha_weight']]
-    if len(archws) == 20:
-        # Case of fixed-precision on last fc layer
-        archws.append(8)
-    assert len(archas) == 21  # 10 insead of 8 because conv1 and fc activations are also quantized
-    assert len(archws) == 21  # 10 instead of 8 because conv1 and fc weights are also quantized
+    # if len(archws) == 20:
+    #     # Case of fixed-precision on last fc layer
+    #     archws.append(8)
+    # assert len(archas) == 21  # 10 insead of 8 because conv1 and fc activations are also quantized
+    # assert len(archws) == 21  # 10 instead of 8 because conv1 and fc weights are also quantized
     ##
 
     kwargs.pop('analog_speedup', 5.)
