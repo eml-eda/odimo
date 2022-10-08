@@ -1864,8 +1864,9 @@ def quantres18_diana_full(arch_cfg_path, **kwargs):
 
 def quantres18_diana_reduced(arch_cfg_path, **kwargs):
     res = kwargs['input_size']
+    std_head = kwargs['std_head']
     is_searchable = utils.detect_ad_tradeoff(
-        quantres18_fp(None, pretrained=False),
+        quantres18_fp(None, pretrained=False, std_head=std_head),
         torch.rand((1, 3, res, res)))
 
     wbits, abits = [8, 2], [7]
@@ -1875,11 +1876,11 @@ def quantres18_diana_reduced(arch_cfg_path, **kwargs):
     archas = [abits for a in best_arch['alpha_activ']]
     archws = [wbits if is_searchable[idx] else [wbits[0]]
               for idx, w_ch in enumerate(best_arch['alpha_weight'])]
-    if len(archws) == 20:
-        # Case of fixed-precision on last fc layer
-        archws.append(8)
-    assert len(archas) == 21  # 10 insead of 8 because conv1 and fc activations are also quantized
-    assert len(archws) == 21  # 10 instead of 8 because conv1 and fc weights are also quantized
+    # if len(archws) == 20:
+    #     # Case of fixed-precision on last fc layer
+    #     archws.append(8)
+    # assert len(archas) == 21  # 10 insead of 8 because conv1 and fc activations are also quantized
+    # assert len(archws) == 21  # 10 instead of 8 because conv1 and fc weights are also quantized
     ##
 
     model = ResNet18(qm.QuantMultiPrecActivConv2d, hw.diana(),

@@ -596,7 +596,7 @@ def mixres18_diana_reduced(arch_cfg_path, **kwargs):
     res = kwargs['input_size']
     std_head = kwargs.pop('std_head', True)
     is_searchable = utils.detect_ad_tradeoff(
-        quantres18_fp(None, pretrained=False),
+        quantres18_fp(None, pretrained=False, std_head=std_head),
         torch.rand((1, 3, res, res)))
     # NB: 2 bits is equivalent for ternary weights!!
     search_model = ResNet18(
