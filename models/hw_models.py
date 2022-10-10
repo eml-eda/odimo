@@ -86,14 +86,22 @@ def _analog_cycles(**kwargs):
 def _digital_cycles(**kwargs):
     ch_in = kwargs['ch_in']
     ch_eff = kwargs['ch_out']
+    groups = kwargs.get('groups', 1)
     k_x = kwargs['k_x']
     k_y = kwargs['k_y']
     out_x = kwargs['out_x']
     out_y = kwargs['out_y']
-    # Depthwise:
+
+    # Original model (no depthwise):
+    # cycles = FloorSTE.apply(ch_eff, 16) * ch_in * _floor(out_x, 16) * out_y * k_x * k_y
+    # Depthwise support:
     # min(ch_eff, groups) * FloorSTE.apply(1, 16) * 1 * _floor(out_x, 16) * out_y * k_x * k_y
-    cycles = FloorSTE.apply(ch_eff, 16) * ch_in * _floor(out_x, 16) * out_y * k_x * k_y
+    cycles = groups * \
+        FloorSTE.apply(ch_eff / groups, 16) * ch_in * _floor(out_x, 16) * out_y * k_x * k_y
+
+    # Works with both depthwise and normal conv:
     cycles_load_store = out_x * out_y * (ch_eff + ch_in) / 8
+
     gate = GateSTE.apply(ch_eff, 1.)
     return (gate * cycles_load_store) + cycles
     # return cycles_load_store + cycles
