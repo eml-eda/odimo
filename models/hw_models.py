@@ -76,7 +76,8 @@ def _analog_cycles(**kwargs):
     out_y = kwargs['out_y']
     ox_unroll_base = ComputeOxUnrollSTE.apply(ch_eff, ch_in, k_x, k_y)
     cycles_comp = FloorSTE.apply(ch_eff, 512) * _floor(ch_in, 128) * out_x * out_y / ox_unroll_base
-    cycles_weights = 4 * 2 * 1152
+    # cycles_weights = 4 * 2 * 1152
+    cycles_weights = 4 * 2 * ch_in * k_x * k_y
     cycles_comp_norm = cycles_comp * 70 / (1000000000 / F)
     gate = GateSTE.apply(ch_eff, 1.)
     return (gate * cycles_weights) + cycles_comp_norm
@@ -96,8 +97,7 @@ def _digital_cycles(**kwargs):
     # cycles = FloorSTE.apply(ch_eff, 16) * ch_in * _floor(out_x, 16) * out_y * k_x * k_y
     # Depthwise support:
     # min(ch_eff, groups) * FloorSTE.apply(1, 16) * 1 * _floor(out_x, 16) * out_y * k_x * k_y
-    cycles = groups * \
-        FloorSTE.apply(ch_eff / groups, 16) * ch_in * _floor(out_x, 16) * out_y * k_x * k_y
+    cycles = FloorSTE.apply(ch_eff / groups, 16) * ch_in * _floor(out_x, 16) * out_y * k_x * k_y
 
     # Works with both depthwise and normal conv:
     cycles_load_store = out_x * out_y * (ch_eff + ch_in) / 8

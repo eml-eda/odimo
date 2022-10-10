@@ -23,8 +23,8 @@ def _ox_unroll_base(ch_in, ch_out, k_x, k_y):
     return ox_unroll_base
 
 
-def digital_cycles(ch_in, ch_out, k_x, k_y, out_x, out_y):
-    cycles = _floor(ch_out, 16) * ch_in * _floor(out_x, 16) * out_y * k_x * k_y
+def digital_cycles(ch_in, ch_out, k_x, k_y, out_x, out_y, groups=1):
+    cycles = _floor(ch_out / groups, 16) * ch_in * _floor(out_x, 16) * out_y * k_x * k_y
     gate = float(ch_out >= 1.)
     cycles_load_store = out_x * out_y * (ch_out + ch_in) / 8
     MACs = ch_in * ch_out * out_x * out_y * k_x * k_y
@@ -39,7 +39,8 @@ def analog_cycles(ch_in, ch_out, k_x, k_y, out_x, out_y,):
     ox_unroll_base = _ox_unroll_base(ch_in, ch_out, k_x, k_y)
     cycles_computation = _floor(ch_out, 512) * _floor(ch_in, 128) * out_x * out_y / ox_unroll_base
     gate = float(ch_out >= 1.)
-    cycles_weights = gate * 4 * 2 * 1152
+    # cycles_weights = gate * 4 * 2 * 1152
+    cycles_weights = gate * 4 * 2 * ch_in * k_x * k_y
     MACs = ch_in * ch_out * out_x * out_y * k_x * k_y
     if gate != 0.:
         MAC_cycles = MACs / ((cycles_computation * 70 / (1000000000 / F) + cycles_weights))

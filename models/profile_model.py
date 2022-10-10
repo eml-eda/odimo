@@ -15,8 +15,10 @@ from torch.fx.passes.graph_drawer import FxGraphDrawer
 from models.model_diana import analog_cycles, digital_cycles
 from models.quant_resnet import quantres8_fp, quantres20_fp, \
     quantres18_fp, quantres18_fp_reduced
+from models.quant_mobilenetv1 import quantmobilenetv1_fp
 
 _ARCH_FUNC = {
+    'mobilenetv1': quantmobilenetv1_fp,
     'resnet8': quantres8_fp,
     'resnet20': quantres20_fp,
     'resnet18-64': quantres18_fp,
@@ -25,6 +27,7 @@ _ARCH_FUNC = {
 }
 
 _INP_SHAPE = {
+    'mobilenetv1': (1, 3, 96, 96),
     'resnet8': (1, 3, 32, 32),
     'resnet20': (1, 3, 32, 32),
     'resnet18-64': (1, 3, 64, 64),
@@ -76,6 +79,7 @@ def profile_cycles(arch,
                 out_shape = node.meta['tensor_meta'].shape
                 ch_in = conv.in_channels
                 ch_out = conv.out_channels
+                groups = conv.groups
                 k_x = conv.kernel_size[0]
                 k_y = conv.kernel_size[1]
                 out_x = out_shape[-2]
@@ -83,6 +87,7 @@ def profile_cycles(arch,
                 arch_details[name] = {
                     'ch_in': ch_in,
                     'ch_out': ch_out,
+                    'groups': groups,
                     'k_x': k_x,
                     'k_y': k_y,
                     'out_x': out_x,
@@ -94,9 +99,14 @@ def profile_cycles(arch,
                     for ch in range(1, ch_out+1)])
                 arch_details[name]['analog_latency'] = \
                     arch_details[name]['analog_func'].max()
-                arch_details[name]['digital_func'] = np.array([
-                    digital_cycles(ch_in, ch, k_x, k_y, out_x, out_y)[1]
-                    for ch in range(1, ch_out+1)])
+                if groups == 1:
+                    arch_details[name]['digital_func'] = np.array([
+                        digital_cycles(ch_in, ch, k_x, k_y, out_x, out_y)[1]
+                        for ch in range(1, ch_out+1)])
+                else:
+                    arch_details[name]['digital_func'] = np.array([
+                        digital_cycles(ch, ch, k_x, k_y, out_x, out_y, groups=ch)[1]
+                        for ch in range(1, ch_out+1)])
                 arch_details[name]['digital_latency'] = \
                     arch_details[name]['digital_func'].max()
                 idx = np.argmin(np.abs(np.flip(
@@ -109,7 +119,7 @@ def profile_cycles(arch,
                     prec = alpha.argmax(axis=0)
                     ch_d = sum(prec == 0)
                     ch_a = sum(prec == 1)
-                    _, nas_d = digital_cycles(ch_in, ch_d, k_x, k_y, out_x, out_y)
+                    _, nas_d = digital_cycles(ch_in, ch_d, k_x, k_y, out_x, out_y, groups)
                     _, nas_a = analog_cycles(ch_in, ch_a, k_x, k_y, out_x, out_y)
                     nas_max = max(nas_d, nas_a)
                     arch_details[name]['NAS_digital'] = nas_d
@@ -124,11 +134,12 @@ def profile_cycles(arch,
         fig, axis = plt.subplots(n_layer, figsize=figsize)
 
         for idx, col in enumerate(df):
-            axis[idx].plot(df[col]['x_ch'], df[col]['analog_func'][::-1],
-                           color='#ff595e', label='analog')
-            axis[idx].plot(df[col]['x_ch'], df[col]['digital_func'],
-                           color='#1982c4', label='digital')
-            axis[idx].set_title(col)
+            if df[col]['groups'] == 1:
+                axis[idx].plot(df[col]['x_ch'], df[col]['analog_func'][::-1],
+                               color='#ff595e', label='analog')
+                axis[idx].plot(df[col]['x_ch'], df[col]['digital_func'],
+                               color='#1982c4', label='digital')
+                axis[idx].set_title(col)
 
         handles, labels = axis[-1].get_legend_handles_labels()
         fig.legend(handles, labels, ncol=2)
