@@ -37,7 +37,7 @@ if args.pretrained_model is not None:
                 fine_tune=False)
 else:
     model = models.__dict__[args.arch](
-        '', num_classes=args.num_classes, analog_speedup=args.analog_speedup)
+        '', num_classes=args.num_classes)
 
 # Feed random input
 if model_name == 'mobilenetv1':

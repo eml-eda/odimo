@@ -198,7 +198,7 @@ class MobileNetV1(nn.Module):
                     conv_shape = {
                         'ch_in': m.ch_in,
                         'ch_out': ch_out,
-                        'groups': m.groups,
+                        'groups': m.mix_weight.conv.groups,
                         'k_x': m.k_x,
                         'k_y': m.k_y,
                         'out_x': m.out_x,
@@ -208,7 +208,7 @@ class MobileNetV1(nn.Module):
                         cycles_analog = self.hw_model('analog', **conv_shape)
                     else:
                         cycles_digital = self.hw_model('digital', **conv_shape)
-                if m.groups == 1:
+                if m.mix_weight.conv.groups == 1:
                     cycles = max(cycles_analog, cycles_digital)
                 else:
                     cycles = cycles_digital
