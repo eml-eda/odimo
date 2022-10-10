@@ -1593,10 +1593,11 @@ def quantres18_minlat64_foldbn(arch_cfg_path, **kwargs):
     std_head = kwargs.pop('std_head', True)
     archas, archws = [[7]] * 21, [[2]] * 21
     # Set weights precision to 8bit in layers where digital is faster
-    if std_head:
-        archws[7] = [8]
-        archws[12] = [8]
-    archws[20] = [8]
+    # if std_head:  # TODO: check with new analog model.
+    #     archws[7] = [8]
+    #     archws[12] = [8]
+    # With no-std-head minlat64 == w2a7_true
+    # archws[20] = [8]
     s_up = kwargs.pop('analog_speedup', 5.)
     fp_model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
                         archws, archas, qtz_fc='multi', std_head=std_head, **kwargs)
@@ -1683,17 +1684,24 @@ def quantres18_minlat64_max8_foldbn(arch_cfg_path, **kwargs):
 
     std_head = kwargs.pop('std_head', True)
     # Set weights precision to 8bit in layers where digital is faster
-    if std_head:
+    if std_head:  # TODO: check with new analog model
         archas, archws = [[7]] * 21, [[8, 2]] * 21
         archws[7] = [8]
         archws[12] = [8]
+        archws[20] = [8]
     else:
+        # Commented values are with older analog model
         archas, archws = [[7]] * 21, [[2]] * 21
         archws[0] = [8, 2]
-        archws[7] = [8, 2]
-        archws[12] = [8, 2]
+        # archws[7] = [8, 2]
+        # archws[12] = [8, 2]
         archws[15] = [8, 2]
-    archws[20] = [8]
+        archws[16] = [8, 2]
+        archws[17] = [8, 2]
+        archws[18] = [8, 2]
+        archws[19] = [8, 2]
+        archws[20] = [8, 2]
+
     s_up = kwargs.pop('analog_speedup', 5.)
     fp_model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
                         archws, archas, qtz_fc='multi', std_head=std_head, **kwargs)
@@ -1723,7 +1731,7 @@ def quantres18_minlat64_max8_foldbn(arch_cfg_path, **kwargs):
     if std_head:
         utils.fix_ch_prec(q_model, prec=8, ch=16)
     else:
-        utils.fix_ch_prec(q_model, prec=8, ch=[24, 12, 40, 48])
+        utils.fix_ch_prec(q_model, prec=8, ch=[16]*6 + [127])
 
     return q_model
 
