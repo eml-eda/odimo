@@ -61,43 +61,43 @@ class Backbone(nn.Module):
         super().__init__()
         self.bb_1 = BasicBlock(
             conv_func, make_divisible(32*width_mult), make_divisible(64*width_mult),
-            wbits[1:3], abits[1:3], stride=1, bn=bn, **kwargs)
+            wbits[0:2], abits[0:2], stride=1, bn=bn, **kwargs)
         self.bb_2 = BasicBlock(
             conv_func, make_divisible(64*width_mult), make_divisible(128*width_mult),
-            wbits[3:5], abits[3:5], stride=2, bn=bn, **kwargs)
+            wbits[2:4], abits[2:4], stride=2, bn=bn, **kwargs)
         self.bb_3 = BasicBlock(
             conv_func, make_divisible(128*width_mult), make_divisible(128*width_mult),
-            wbits[5:7], abits[5:7], stride=1, bn=bn, **kwargs)
+            wbits[4:6], abits[4:6], stride=1, bn=bn, **kwargs)
         self.bb_4 = BasicBlock(
             conv_func, make_divisible(128*width_mult), make_divisible(256*width_mult),
-            wbits[7:9], abits[7:9], stride=2, bn=bn, **kwargs)
+            wbits[6:8], abits[6:8], stride=2, bn=bn, **kwargs)
         self.bb_5 = BasicBlock(
             conv_func, make_divisible(256*width_mult), make_divisible(256*width_mult),
-            wbits[9:11], abits[9:11], stride=1, bn=bn, **kwargs)
+            wbits[8:10], abits[8:10], stride=1, bn=bn, **kwargs)
         self.bb_6 = BasicBlock(
             conv_func, make_divisible(256*width_mult), make_divisible(512*width_mult),
-            wbits[11:13], abits[11:13], stride=2, bn=bn, **kwargs)
+            wbits[10:12], abits[10:12], stride=2, bn=bn, **kwargs)
         self.bb_7 = BasicBlock(
             conv_func, make_divisible(512*width_mult), make_divisible(512*width_mult),
-            wbits[13:15], abits[13:15], stride=1, bn=bn, **kwargs)
+            wbits[12:14], abits[12:14], stride=1, bn=bn, **kwargs)
         self.bb_8 = BasicBlock(
             conv_func, make_divisible(512*width_mult), make_divisible(512*width_mult),
-            wbits[15:17], abits[15:17], stride=1, bn=bn, **kwargs)
+            wbits[14:16], abits[14:16], stride=1, bn=bn, **kwargs)
         self.bb_9 = BasicBlock(
             conv_func, make_divisible(512*width_mult), make_divisible(512*width_mult),
-            wbits[17:19], abits[17:19], stride=1, bn=bn, **kwargs)
+            wbits[16:18], abits[16:18], stride=1, bn=bn, **kwargs)
         self.bb_10 = BasicBlock(
             conv_func, make_divisible(512*width_mult), make_divisible(512*width_mult),
-            wbits[19:21], abits[19:21], stride=1, bn=bn, **kwargs)
+            wbits[18:20], abits[18:20], stride=1, bn=bn, **kwargs)
         self.bb_11 = BasicBlock(
             conv_func, make_divisible(512*width_mult), make_divisible(512*width_mult),
-            wbits[21:23], abits[21:23], stride=1, bn=bn, **kwargs)
+            wbits[20:22], abits[20:22], stride=1, bn=bn, **kwargs)
         self.bb_12 = BasicBlock(
             conv_func, make_divisible(512*width_mult), make_divisible(1024*width_mult),
-            wbits[23:25], abits[23:25], stride=2, bn=bn, **kwargs)
+            wbits[22:24], abits[22:24], stride=2, bn=bn, **kwargs)
         self.bb_13 = BasicBlock(
             conv_func, make_divisible(1024*width_mult), make_divisible(1024*width_mult),
-            wbits[25:27], abits[25:27], stride=1, bn=bn, **kwargs)
+            wbits[24:26], abits[24:26], stride=1, bn=bn, **kwargs)
         self.pool = nn.AvgPool2d(int(input_size / (2**5)))
 
     def forward(self, x):
@@ -223,7 +223,7 @@ class MobileNetV1(nn.Module):
 
 
 def quantmobilenetv1_fp(arch_cfg_path, **kwargs):
-    archas, archws = [[8]] * 30, [[8]] * 30
+    archas, archws = [[8]] * 28, [[8]] * 28
     model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=5.),
                         archws, archas, qtz_fc='multi', **kwargs)
     return model
@@ -235,7 +235,7 @@ def quantmobilenetv1_fp_foldbn(arch_cfg_path, **kwargs):
         print(f"The file {arch_cfg_path} does not exist.")
         raise FileNotFoundError
 
-    archas, archws = [[8]] * 30, [[8]] * 30
+    archas, archws = [[8]] * 28, [[8]] * 28
     model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=5.),
                         archws, archas, qtz_fc='multi', **kwargs)
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
@@ -255,7 +255,7 @@ def quantmobilenetv1_w8a7_foldbn(arch_cfg_path, **kwargs):
         print(f"The file {arch_cfg_path} does not exist.")
         raise FileNotFoundError
 
-    archas, archws = [[7]] * 30, [[8]] * 30
+    archas, archws = [[7]] * 28, [[8]] * 28
     fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=5.),
                            archws, archas, qtz_fc='multi', **kwargs)
     q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
@@ -288,7 +288,7 @@ def quantmobilenetv1_w2a7_foldbn(arch_cfg_path, **kwargs):
         print(f"The file {arch_cfg_path} does not exist.")
         raise FileNotFoundError
 
-    archas, archws = [[7]] * 30, [[2]] * 30
+    archas, archws = [[7]] * 28, [[2]] * 28
     # Set first and last layer weights precision to 8bit
     archws[0] = [8]
     archws[-1] = [8]
@@ -324,7 +324,7 @@ def quantmobilenetv1_w2a7_true_foldbn(arch_cfg_path, **kwargs):
         print(f"The file {arch_cfg_path} does not exist.")
         raise FileNotFoundError
 
-    archas, archws = [[7]] * 30, [[2]] * 30
+    archas, archws = [[7]] * 28, [[2]] * 28
     fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=5.),
                            archws, archas, qtz_fc='multi', **kwargs)
     q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
@@ -352,8 +352,80 @@ def quantmobilenetv1_w2a7_true_foldbn(arch_cfg_path, **kwargs):
 
 
 def quantmobilenetv1_minlat_foldbn(arch_cfg_path, **kwargs):
-    ...
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[7]] * 28, [[2]] * 28
+    # Set weights precision to 8bit in layers where digital is faster
+    archws[0] = [8]
+    archws[-1] = [8]
+
+    fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                           archws, archas, qtz_fc='multi', **kwargs)
+    q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+                          archws, archas, qtz_fc='multi', **kwargs)
+    # Load pretrained fp state_dict
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_model.load_state_dict(fp_state_dict)
+    # Fold bn
+    fp_model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(fp_model)
+    folded_state_dict = folded_model.state_dict()
+
+    # Delete fp and folded model
+    del fp_model, folded_model
+
+    # Translate folded fp state dict in a format compatible with quantized layers
+    q_state_dict = utils.fpfold_to_q(folded_state_dict)
+    # Load folded fp state dict in quantized model
+    q_model.load_state_dict(q_state_dict, strict=False)
+
+    # Init scale param
+    utils.init_scale_param(q_model)
+
+    return q_model
 
 
 def quantmobilenetv1_minlat_max8_foldbn(arch_cfg_path, **kwargs):
-    ...
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[7]] * 28, [[2]] * 28
+    # Set weights precision to 8bit in layers where digital is faster
+    archws[0] = [8]
+    archws[2] = [8, 2]
+    archws[12] = [8, 2]
+    archws[24] = [8, 2]
+    archws[26] = [8, 2]
+    archws[27] = [8]
+
+    fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                           archws, archas, qtz_fc='multi', **kwargs)
+    q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+                          archws, archas, qtz_fc='multi', **kwargs)
+    # Load pretrained fp state_dict
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_model.load_state_dict(fp_state_dict)
+    # Fold bn
+    fp_model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(fp_model)
+    folded_state_dict = folded_model.state_dict()
+
+    # Delete fp and folded model
+    del fp_model, folded_model
+
+    # Translate folded fp state dict in a format compatible with quantized layers
+    q_state_dict = utils.fpfold_to_q(folded_state_dict)
+    # Load folded fp state dict in quantized model
+    q_model.load_state_dict(q_state_dict, strict=False)
+
+    # Init scale param
+    utils.init_scale_param(q_model)
+
+    utils.fix_ch_prec(q_model, prec=8, ch=[6, 0, 31, 31])
+
+    return q_model
