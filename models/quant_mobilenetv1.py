@@ -122,7 +122,7 @@ class MobileNetV1(nn.Module):
 
     def __init__(self, conv_func, hw_model, archws, archas,
                  qtz_fc=None, width_mult=.25,
-                 input_size=96, num_classes=200, bn=True, **kwargs):
+                 input_size=96, num_classes=2, bn=True, **kwargs):
         print('archas: {}'.format(archas))
         print('archws: {}'.format(archws))
 

@@ -17,6 +17,8 @@ parser.add_argument('--pretrained-model', type=str, default=None, help='Pretrain
 args = parser.parse_args()
 print(args)
 
+model_name = str(args.arch).split('quant')[1].split('_')[0]
+
 # Build and Load pretrained model if specified
 if args.pretrained_model is not None:
     if 'mix' in args.arch:
@@ -24,16 +26,20 @@ if args.pretrained_model is not None:
             args.pretrained_model, num_classes=args.num_classes,
             )
     else:
-        model = models.__dict__[args.arch](
-            args.pretrained_model, num_classes=args.num_classes,
-            fine_tune=False, analog_speedup=args.analog_speedup,
-            std_head=args.std_head)
+        if model_name == 'res18':
+            model = models.__dict__[args.arch](
+                args.pretrained_model, num_classes=args.num_classes,
+                fine_tune=False, analog_speedup=args.analog_speedup,
+                std_head=args.std_head)
+        else:
+            model = models.__dict__[args.arch](
+                args.pretrained_model, num_classes=args.num_classes,
+                fine_tune=False)
 else:
     model = models.__dict__[args.arch](
         '', num_classes=args.num_classes, analog_speedup=args.analog_speedup)
 
 # Feed random input
-model_name = str(args.arch).split('quant')[1].split('_')[0]
 if model_name == 'mobilenetv1':
     rnd_input = torch.randn(1, 3, 96, 96)
 elif model_name in ['res20', 'res8']:
