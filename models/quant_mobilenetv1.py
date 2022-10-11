@@ -32,7 +32,8 @@ class BasicBlock(nn.Module):
         self.bn = bn
         self.use_bias = not bn
         super().__init__()
-        self.depth = conv_func(inp, inp, archws[0], archas[0],
+        # For depthwise archws is always [8]
+        self.depth = conv_func(inp, inp, [8], archas[0],
                                kernel_size=3, stride=stride, padding=1,
                                bias=self.use_bias, groups=inp, **kwargs)
         if bn:
