@@ -119,7 +119,7 @@ class Backbone20(nn.Module):
         x = self.bb_3_0(x)
         x = self.bb_3_1(x)
         x = self.bb_3_2(x)
-        x = self.pool(x)
+        x = self.pool(F.relu(x))
         return x
 
 
@@ -328,9 +328,6 @@ class ResNet20(nn.Module):
             self.bn1 = nn.BatchNorm2d(16)
         self.backbone = Backbone20(
             conv_func, input_size, bn, abits=archas[1:-1], wbits=archws[1:-1], **kwargs)
-        self.fc = conv_func(
-            64, num_classes, abits=archas[-1], wbits=archws[-1],
-            kernel_size=1, stride=1, groups=1, bias=True, fc=self.qtz_fc, **kwargs)
 
         # Initialize weights
         for m in self.modules():
@@ -342,6 +339,11 @@ class ResNet20(nn.Module):
                     m.weight.data.fill_(1)
                 if m.bias is not None:
                     m.bias.data.zero_()
+
+        # Final classifier
+        self.fc = conv_func(
+            64, num_classes, abits=archas[-1], wbits=archws[-1],
+            kernel_size=1, stride=1, groups=1, bias=True, fc=self.qtz_fc, **kwargs)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -366,19 +368,26 @@ class ResNet20(nn.Module):
                 abit = m.abits[0]
                 sum_bitw += size_product * wbit
 
-                # Define dict whit shape infos used to model accelerators perf
-                conv_shape = {
-                    'ch_in': m.ch_in,
-                    'ch_out': torch.tensor(m.ch_out),
-                    'k_x': m.k_x,
-                    'k_y': m.k_y,
-                    'out_x': m.out_x,
-                    'out_y': m.out_y,
-                    }
-                if wbit == 2:
-                    cycles = self.hw_model('analog', **conv_shape)
-                else:
-                    cycles = self.hw_model('digital', **conv_shape)
+                cycles_analog, cycles_digital = 0, 0
+                for idx, wb in enumerate(m.wbits):
+                    if len(m.wbits) > 1:
+                        ch_out = m.mix_weight.alpha_weight[idx].sum()
+                    else:
+                        ch_out = torch.tensor(m.ch_out)
+                    # Define dict whit shape infos used to model accelerators perf
+                    conv_shape = {
+                        'ch_in': m.ch_in,
+                        'ch_out': ch_out,
+                        'k_x': m.k_x,
+                        'k_y': m.k_y,
+                        'out_x': m.out_x,
+                        'out_y': m.out_y,
+                        }
+                    if wb == 2:
+                        cycles_analog = self.hw_model('analog', **conv_shape)
+                    else:
+                        cycles_digital = self.hw_model('digital', **conv_shape)
+                cycles = max(cycles_analog, cycles_digital)
 
                 bita = memory_size * abit
                 bitw = m.param_size * wbit
@@ -1543,19 +1552,26 @@ def quantres20_minlat_foldbn(arch_cfg_path, **kwargs):
         print(f"The file {arch_cfg_path} does not exist.")
         raise FileNotFoundError
 
-    archas, archws = [[7]] * 22, [[8]] * 22
-    # Set weights precision to 2bit in layers where analog is faster
-    archws[8] = [2]
-    archws[10] = [2]
-    archws[11] = [2]
-    archws[12] = [2]
-    archws[13] = [2]
-    archws[14] = [2]
-    archws[15] = [2]
-    archws[17] = [2]
-    archws[18] = [2]
-    archws[19] = [2]
-    archws[20] = [2]
+    # # OLD MODEL # #
+    # archas, archws = [[7]] * 22, [[8]] * 22
+    # # Set weights precision to 2bit in layers where analog is faster
+    # archws[8] = [2]
+    # archws[10] = [2]
+    # archws[11] = [2]
+    # archws[12] = [2]
+    # archws[13] = [2]
+    # archws[14] = [2]
+    # archws[15] = [2]
+    # archws[17] = [2]
+    # archws[18] = [2]
+    # archws[19] = [2]
+    # archws[20] = [2]
+
+    archas, archws = [[7]] * 22, [[2]] * 22
+    # Set weights precision to 8bit in layers where digital is faster
+    archws[0] = [8]
+    archws[-1] = [8]
+
     s_up = kwargs.pop('analog_speedup', 5.)
     fp_model = ResNet20(qm.FpConv2d, hw.diana(analog_speedup=5.),
                         archws, archas, qtz_fc='multi', **kwargs)
@@ -1632,19 +1648,27 @@ def quantres20_minlat_max8_foldbn(arch_cfg_path, **kwargs):
         print(f"The file {arch_cfg_path} does not exist.")
         raise FileNotFoundError
 
-    archas, archws = [[7]] * 22, [[8]] * 22
+    # # OLD MODEL # #
+    # archas, archws = [[7]] * 22, [[8]] * 22
+    # # Set weights precision to 2bit in layers where analog is faster
+    # archws[8] = [8, 2]
+    # archws[10] = [8, 2]
+    # archws[11] = [8, 2]
+    # archws[12] = [8, 2]
+    # archws[13] = [8, 2]
+    # archws[14] = [8, 2]
+    # archws[15] = [8, 2]
+    # archws[17] = [8, 2]
+    # archws[18] = [8, 2]
+    # archws[19] = [8, 2]
+    # archws[20] = [8, 2]
+
+    archas, archws = [[7]] * 22, [[2]] * 22
     # Set weights precision to 2bit in layers where analog is faster
-    archws[8] = [8, 2]
-    archws[10] = [8, 2]
-    archws[11] = [8, 2]
-    archws[12] = [8, 2]
-    archws[13] = [8, 2]
+    archws[0] = [8]
     archws[14] = [8, 2]
-    archws[15] = [8, 2]
-    archws[17] = [8, 2]
-    archws[18] = [8, 2]
-    archws[19] = [8, 2]
-    archws[20] = [8, 2]
+    archws[-1] = [8]
+
     s_up = kwargs.pop('analog_speedup', 5.)
     fp_model = ResNet20(qm.FpConv2d, hw.diana(analog_speedup=5.),
                         archws, archas, qtz_fc='multi', **kwargs)
@@ -1671,7 +1695,7 @@ def quantres20_minlat_max8_foldbn(arch_cfg_path, **kwargs):
     utils.init_scale_param(q_model)
 
     # Fix 16 channels to 8bit prec in each layer to achieve min latency
-    utils.fix_ch_prec(q_model, prec=8, ch=16)
+    utils.fix_ch_prec(q_model, prec=8, ch=[4])
 
     return q_model
 

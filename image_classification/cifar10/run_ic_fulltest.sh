@@ -20,16 +20,22 @@ project="hp-nas_ic"
 #tags="init_same no_wp reg_w"
 tags="init_same wp reg_w softemp"
 
-timestamp=$(date +"%Y-%m-%d-%T")
+if [[ "$3" == "now" ]]; then
+    timestamp=$(date +"%Y-%m-%d-%T")
+else
+    timestamp=$3
+fi
+
+# timestamp=$(date +"%Y-%m-%d-%T")
 mkdir -p ${path}/${arch}
 mkdir -p ${path}/${arch}/model_${strength}
 mkdir -p ${path}/${arch}/model_${strength}/${timestamp}
 
 export WANDB_MODE=offline
 
-if [[ "$3" == "search" ]]; then
+if [[ "$4" == "search" ]]; then
     echo Search
-    split=0.2
+    split=0.0
     # NB: add --warmup-8bit if needed
     python3 search_r20.py ${path}/${arch}/model_${strength}/${timestamp} -a mix${arch} \
         -d cifar10 --arch-data-split ${split} \
@@ -42,11 +48,11 @@ if [[ "$3" == "search" ]]; then
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/${timestamp}/log_search_${strength}.txt
 fi
 
-if [[ "$4" == "ft" ]]; then
+if [[ "$5" == "ft" ]]; then
     echo Fine-Tune
     python3 main_r20.py ${path}/${arch}/model_${strength}/${timestamp} -a quant${arch} \
         -d cifar10 --epochs 200 --step-epoch 50 -b 128 --patience 500 \
-        --lr 0.00005 --wd 1e-4 \
+        --lr 0.0001 --wd 1e-4 \
         --seed 42 --gpu 0 \
         --ac ${arch}/model_${strength}/${timestamp}/arch_model_best.pth.tar -ft \
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/${timestamp}/log_finetune_${strength}.txt
@@ -58,7 +64,7 @@ else
     pretrained_model="warmup20_fp.pth.tar"
     python3 main_r20.py ${path}/${arch}/model_${strength}/${timestamp} -a quant${arch} \
         -d cifar10 --epochs 200 --step-epoch 50 -b 128 --patience 500 \
-        --lr 0.0001 --wd 1e-4 \
+        --lr 0.001 --wd 1e-4 \
         --seed 42 --gpu 0 \
         --ac ${pretrained_model} | tee ${path}/${arch}/model_${strength}/${timestamp}/log_fromscratch_${strength}.txt
 fi

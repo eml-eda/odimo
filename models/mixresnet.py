@@ -95,7 +95,7 @@ class Backbone20(nn.Module):
         x = self.bb_3_0(x, temp, is_hard)
         x = self.bb_3_1(x, temp, is_hard)
         x = self.bb_3_2(x, temp, is_hard)
-        x = self.pool(x)
+        x = self.pool(F.relu(x))
         return x
 
 
