@@ -1,0 +1,100 @@
+from abc import abstractmethod
+from typing import Any, Type
+
+import torch
+import torch.fx as fx
+import torch.nn as nn
+
+__all__ = [
+    'ObserverBase',
+    'PerChannelMaxObserver',
+    'insert_observers',
+]
+
+
+class ObserverBase(nn.Module):
+    """Base observer Module.
+    Any observer implementation should derive from this class.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    @abstractmethod
+    def forward(self, *args: Any) -> Any:
+        raise NotImplementedError
+
+
+# Code inspired by https://tinyurl.com/torc-qtz
+class PerChannelMaxObserver(ObserverBase):
+    """Observer module for tracing the per channel maximum input value.
+    The forward method performs tracing and returns exactly its input.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.register_buffer('max_val', torch.tensor([]))
+
+    def forward(self, x_orig):
+        x = x_orig.detach()  # avoid keeping autograd tape
+        max_val = self.max_val
+        x = torch.flatten(x, start_dim=1)  # assume channel_first format
+        if max_val.numel() == 0:  # initially self.max_val is empty
+            max_val = torch.amax(x, dim=1)
+        else:
+            max_val_cur = torch.amax(x, dim=1)
+            max_val = torch.max(max_val_cur, max_val)
+        self.max_val.resize_(max_val.shape)
+        self.max_val.copy_(max_val)
+
+        return x_orig
+
+
+class ObserverTracer(fx.Tracer):
+    """Consider layers contained in `target_layers` as leaf modules.
+
+    :param target_layers: modules that should be considered as a leaf
+    :type target_layers: tuple[Type[nn.Module]
+    """
+
+    def __init__(self, target_layers: tuple[Type[nn.Module], ...]):
+        super().__init__()
+
+    def is_leaf_module(
+        self,
+        m: nn.Module,
+        module_qualified_name: str
+    ) -> bool:
+        if isinstance(m, self.target_layers):
+            return True
+        else:
+            return m.__module__.startswith('torch.nn') and \
+                not isinstance(m, torch.nn.Sequential)
+
+
+def insert_observers(
+    model: nn.Module,
+    target_layers: tuple[Type[nn.Module], ...],
+    observer: ObserverBase = PerChannelMaxObserver
+) -> nn.Module:
+    """
+    Attaches an `observer` to the output of every `target_layers` found
+    in `model`.
+
+    :param model: nn.Module where observers shoud be inserted
+    :type model: nn.Module
+    :param target_layers: set of nn.Module where an observer should be inserted
+    :type target_layers: Iterable[Type[nn.Module]]
+    :param observer: observer module to be used,
+    default to PerChannelMaxObserver
+    :type observer: ObserverBase, optional
+    :return: a `model` copy with `observer`
+    :rtype: nn.Module
+    """
+    tracer = ObserverTracer(target_layers)
+    graph = tracer.trace(model.eval())
+    name = model.__class__.__name__
+    mod = fx.GraphModule(tracer.root, graph, name)
+    g = mod.graph
+
+    return
