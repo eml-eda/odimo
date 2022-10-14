@@ -59,6 +59,7 @@ class ObserverTracer(fx.Tracer):
 
     def __init__(self, target_layers: tuple[Type[nn.Module], ...]):
         super().__init__()
+        self.target_layers = target_layers
 
     def is_leaf_module(
         self,
@@ -91,10 +92,20 @@ def insert_observers(
     :return: a `model` copy with `observer`
     :rtype: nn.Module
     """
+    # model_device = next(model.parameters()).device
     tracer = ObserverTracer(target_layers)
     graph = tracer.trace(model.eval())
     name = model.__class__.__name__
     mod = fx.GraphModule(tracer.root, graph, name)
-    g = mod.graph
-
-    return
+    modules = dict(mod.named_modules())
+    for n in mod.graph.nodes:
+        if n.target in modules.keys():
+            if isinstance(modules[n.target], target_layers):
+                new_obs_name = f'{n.target}_observer'
+                new_obs = observer()
+                mod.add_submodule(new_obs_name, new_obs)
+                with mod.graph.inserting_after(n):
+                    mod.graph.create_node('call_module', new_obs_name, (n,))
+    mod.graph.lint()
+    mod.recompile()
+    return mod
