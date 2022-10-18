@@ -38,7 +38,9 @@ class PerChannelMaxObserver(ObserverBase):
     def forward(self, x_orig):
         x = x_orig.detach()  # avoid keeping autograd tape
         max_val = self.max_val
-        x = torch.flatten(x, start_dim=1)  # assume channel_first format
+        # assume format [batch, ch, x, y]
+        # transpose batch and ch and then flatten maintaining ch dimension
+        x = torch.flatten(x.transpose(0, 1), start_dim=1)
         if max_val.numel() == 0:  # initially self.max_val is empty
             max_val = torch.amax(x, dim=1)
         else:

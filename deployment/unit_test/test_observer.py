@@ -6,7 +6,7 @@ import torch.nn as nn
 
 from deployment.observer import ObserverBase, insert_observers
 
-from models import ToyFPConv
+from test_models import ToyFPConv
 
 
 class TestObserver(unittest.TestCase):
@@ -31,7 +31,7 @@ class TestObserver(unittest.TestCase):
         """
         n_conv = random.randint(1, 50)
         nn_ut = ToyFPConv(n=n_conv)
-        dummy_inp = torch.rand(nn_ut.input_shape)
+        dummy_inp = torch.rand((2,) + nn_ut.input_shape)
         nn_ut_out = nn_ut(dummy_inp)
         new_nn = insert_observers(nn_ut, target_layers=(nn.Conv2d))
         new_nn_out = new_nn(dummy_inp)
@@ -45,7 +45,7 @@ class TestObserver(unittest.TestCase):
         output is equal to the sum of the bias of previus convolutions.
         """
         nn_ut = ToyFPConv(n=1)
-        dummy_inp = torch.zeros(nn_ut.input_shape)
+        dummy_inp = torch.zeros((2,) + nn_ut.input_shape)
         new_nn = insert_observers(nn_ut, target_layers=(nn.Conv2d))
         new_nn(dummy_inp)
         observer_output = new_nn.net.conv1_observer.max_val
