@@ -5,6 +5,25 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: mbv1_w2a7_true_deploy",
+            "type": "python",
+            "request": "launch",
+            "program": "deploy.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/visual_wake_words",
+            "args": [
+                "mobilenetv1_w2a7_true_foldbn/model_debug",
+                "-a", "quantmobilenetv1_w2a7_true_foldbn",
+                "--ac", "warmup.pth.tar",
+                "--pretrained-w", "w2a7_true.pth.tar",
+                "-b", "32",
+                "--workers", "0",
+                "--seed", "42",
+                "--gpu", "0"
+            ]
+        },
+        {
             "name": "Python: model_profiler",
             "type": "python",
             "request": "launch",

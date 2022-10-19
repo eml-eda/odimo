@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -45,3 +46,14 @@ class ToyQConv(nn.Module):
         x1 = self.conv1(x0)
         x2 = self.fc(x1)
         return x2[:, :, 0, 0]
+
+    def harden_weights(self):
+        for _, module in self.named_modules():
+            if isinstance(module, self.conv_func):
+                module.harden_weights()
+
+    def store_hardened_weights(self):
+        with torch.no_grad():
+            for _, module in self.named_modules():
+                if isinstance(module, self.conv_func):
+                    module.store_hardened_weights()

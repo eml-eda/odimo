@@ -5,6 +5,8 @@ import torch
 import torch.fx as fx
 import torch.nn as nn
 
+import deployment.utils as utils
+
 __all__ = [
     'ObserverBase',
     'PerChannelMaxObserver',
@@ -110,4 +112,6 @@ def insert_observers(
                     mod.graph.create_node('call_module', new_obs_name, (n,))
     mod.graph.lint()
     mod.recompile()
+    # Re-add removed custom attributes contained in model to mod
+    utils.add_attributes(model, mod)
     return mod

@@ -243,7 +243,6 @@ class FQQuantizationSTE(torch.autograd.Function):
         # grad_alpha.masked_fill_(x.lt(scale_param.data[0]), 0)
         # grad_alpha[input.lt(clip_val.data[0])] = 0
         # grad_alpha = grad_alpha.sum().expand_as(scale_param)
-
         return grad_input, None, None, None
 
 
@@ -278,7 +277,7 @@ class FQActQuantization(nn.Module):
 
 
 class FQConvBiasQuantization(nn.Module):
-    def __init__(self, cout, num_bits, abit, inplace=False):
+    def __init__(self, cout, num_bits, abit, inplace=False, dequantize=True):
         super().__init__()
         self.cout = cout
         self.num_bits = num_bits
@@ -287,6 +286,7 @@ class FQConvBiasQuantization(nn.Module):
         # self.n_s = 1  # Per-Layer scale-factor
         self.n_s = 1 if num_bits != 2 else cout  # Per-Ch scale factor
         self.inplace = inplace
+        self.dequantize = dequantize
 
     def forward(self, x, w_scale, act_scale):
         n_w = 2**(self.num_bits - 1) - 1
@@ -297,9 +297,12 @@ class FQConvBiasQuantization(nn.Module):
         x_scaled = x / scale_param.view(self.n_s)
         # Quantize
         x_q = FQQuantizationSTE.apply(x_scaled, self.b_prec, self.inplace, -1)
-        # Multiply by scale factor
-        x_deq = x_q * scale_param.view(self.n_s)
-        return x_deq
+        if self.dequantize:
+            # Multiply by scale factor
+            x_deq = x_q * scale_param.view(self.n_s)
+            return x_deq
+        else:
+            return n_b * x_q
 
     def __repr__(self):
         return f'{self.__class__.__name__}(num_bits={self.num_bits})'
@@ -308,7 +311,7 @@ class FQConvBiasQuantization(nn.Module):
 # MR (Ref: https://arxiv.org/abs/1912.09356)
 class FQConvWeightQuantization(nn.Module):
     def __init__(self, cout, k_size, num_bits, init_scale_param=0.,
-                 train_scale_param=False, inplace=False):
+                 train_scale_param=False, inplace=False, dequantize=True):
         super().__init__()
         self.cout = cout
         self.k_size = k_size
@@ -327,6 +330,7 @@ class FQConvWeightQuantization(nn.Module):
         init_scale_param = math.log(-2 * n.icdf(p))
         self.scale_param.data.fill_(init_scale_param)
         self.inplace = inplace
+        self.dequantize = dequantize
 
     def forward(self, x):
         # Having a positive scale factor is preferable to avoid instabilities
@@ -334,9 +338,12 @@ class FQConvWeightQuantization(nn.Module):
         x_scaled = x / exp_scale_param.view(self.n_s, 1, 1, 1)
         # Quantize
         x_q = FQQuantizationSTE.apply(x_scaled, self.num_bits, self.inplace, -1)
-        # Multiply by scale factor
-        x_deq = x_q * exp_scale_param.view(self.n_s, 1, 1, 1)
-        return x_deq
+        if self.dequantize:
+            # Multiply by scale factor
+            x_deq = x_q * exp_scale_param.view(self.n_s, 1, 1, 1)
+            return x_deq
+        else:
+            return x_q * (2**(self.num_bits-1) - 1)
 
     def __repr__(self):
         return f'{self.__class__.__name__}(num_bits={self.num_bits}, \
@@ -418,6 +425,20 @@ class QuantMultiPrecActivConv2d(nn.Module):
         self.out_x = out_shape[-2]
         self.out_y = out_shape[-1]
         return out
+
+    def harden_weights(self):
+        for branch in self.mix_activ.mix_activ:
+            branch.dequantize = False
+        for branch in self.mix_weight.mix_weight:
+            branch.dequantize = False
+        for branch in self.mix_weight.mix_bias:
+            branch.dequantize = False
+
+    def store_hardened_weights(self):
+        act_scale = []
+        for branch in self.mix_activ.mix_activ:
+            act_scale.append(branch.clip_val)
+        self.mix_weight.store_hardened_weights(torch.stack(act_scale))
 
 
 # MR
@@ -536,6 +557,30 @@ class QuantMultiPrecConv2d(nn.Module):
             input, mix_quant_weight, mix_quant_bias, conv.stride,
             conv.padding, conv.dilation, conv.groups)
         return out
+
+    def store_hardened_weights(self, act_scale):
+        mix_quant_weight = list()
+        mix_quant_bias = list()
+        sw = F.one_hot(torch.argmax(self.alpha_weight, dim=0),
+                       num_classes=len(self.bits)).t()
+        conv = self.conv
+        weight = conv.weight
+        bias = getattr(conv, 'bias', None)
+        for i, bit in enumerate(self.bits):
+            quant_weight = self.mix_weight[i](weight)
+            w_scale = self.mix_weight[i].scale_param
+            scaled_quant_weight = quant_weight * \
+                sw[i].view((self.cout, 1, 1, 1))
+            mix_quant_weight.append(scaled_quant_weight)
+            if bias is not None:
+                quant_bias = self.mix_bias[i](bias, w_scale, act_scale)
+                scaled_quant_bias = quant_bias * sw[i].view(self.cout)
+                mix_quant_bias.append(scaled_quant_bias)
+        if mix_quant_bias:
+            mix_quant_bias = sum(mix_quant_bias)
+            self.conv.bias.copy_(mix_quant_bias)
+        mix_quant_weight = sum(mix_quant_weight)
+        self.conv.weight.copy_(mix_quant_weight)
 
 
 # MR

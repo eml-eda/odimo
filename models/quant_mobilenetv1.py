@@ -178,6 +178,17 @@ class MobileNetV1(nn.Module):
 
         return x
 
+    def harden_weights(self):
+        for _, module in self.named_modules():
+            if isinstance(module, self.conv_func):
+                module.harden_weights()
+
+    def store_hardened_weights(self):
+        with torch.no_grad():
+            for _, module in self.named_modules():
+                if isinstance(module, self.conv_func):
+                    module.store_hardened_weights()
+
     def fetch_arch_info(self):
         sum_cycles, sum_bita, sum_bitw = 0, 0, 0
         layer_idx = 0
@@ -260,7 +271,7 @@ def quantmobilenetv1_w8a7_foldbn(arch_cfg_path, **kwargs):
     fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=5.),
                            archws, archas, qtz_fc='multi', **kwargs)
     q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
-                          archws, archas, qtz_fc='multi', **kwargs)
+                          archws, archas, qtz_fc='multi', bn=False, **kwargs)
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     fp_model.load_state_dict(fp_state_dict)
@@ -296,7 +307,7 @@ def quantmobilenetv1_w2a7_foldbn(arch_cfg_path, **kwargs):
     fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=5.),
                            archws, archas, qtz_fc='multi', **kwargs)
     q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
-                          archws, archas, qtz_fc='multi', **kwargs)
+                          archws, archas, qtz_fc='multi', bn=False, **kwargs)
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     fp_model.load_state_dict(fp_state_dict)
@@ -329,7 +340,7 @@ def quantmobilenetv1_w2a7_true_foldbn(arch_cfg_path, **kwargs):
     fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=5.),
                            archws, archas, qtz_fc='multi', **kwargs)
     q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
-                          archws, archas, qtz_fc='multi', **kwargs)
+                          archws, archas, qtz_fc='multi', bn=False, **kwargs)
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     fp_model.load_state_dict(fp_state_dict)
@@ -366,7 +377,7 @@ def quantmobilenetv1_minlat_foldbn(arch_cfg_path, **kwargs):
     fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=5.),
                            archws, archas, qtz_fc='multi', **kwargs)
     q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
-                          archws, archas, qtz_fc='multi', **kwargs)
+                          archws, archas, qtz_fc='multi', bn=False, **kwargs)
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     fp_model.load_state_dict(fp_state_dict)
@@ -407,7 +418,7 @@ def quantmobilenetv1_minlat_max8_foldbn(arch_cfg_path, **kwargs):
     fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=5.),
                            archws, archas, qtz_fc='multi', **kwargs)
     q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
-                          archws, archas, qtz_fc='multi', **kwargs)
+                          archws, archas, qtz_fc='multi', bn=False, **kwargs)
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     fp_model.load_state_dict(fp_state_dict)
