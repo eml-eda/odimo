@@ -4,10 +4,13 @@ import copy
 import math
 
 import torch
+import torch.fx as fx
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
 from torch.nn.parameter import Parameter
+
+from . import int_module as im
 
 
 # DJP (TODO: test symmetric quant)
@@ -425,6 +428,44 @@ class QuantMultiPrecActivConv2d(nn.Module):
         self.out_x = out_shape[-2]
         self.out_y = out_shape[-1]
         return out
+
+    @staticmethod
+    def autoconvert(n: fx.Node, mod: fx.GraphModule,
+                    s_x: torch.Tensor, b: torch.Tensor):
+        """Replaces a fx.Node corresponding to a QuantMultiPrecActivConv2d,
+        with a FakeIntMultiPrecActivConv2d layer within a fx.GraphModule
+
+        :param n: the node to be rewritten, corresponds to a
+        QuantMultiPrecActivConv2d layer
+        :type n: fx.Node
+        :param mod: the parent module, where the new node has to be inserted
+        :type mod: fx.GraphModule
+        :param s_x: activation fakeint scale-factor
+        :type s_x: torch.Tensor
+        :param b: fakeint bias
+        :type b: torch.Tensor
+        """
+        submodule = mod.get_submodule(str(n.target))
+        if type(submodule) != QuantMultiPrecActivConv2d:
+            raise TypeError(f"Trying to export a layer of type{type(submodule)}")
+        conv = submodule.mix_weight.conv
+        new_submodule = im.FakeIntMultiPrecActivConv2d(
+            s_x, submodule.abits, submodule.wbits,
+            in_channels=conv.in_channels,
+            out_channels=conv.out_channels,
+            kernel_size=conv.kernel_size,
+            stride=conv.stride,
+            padding=conv.padding,
+            dilation=conv.dilation,
+            groups=conv.groups,
+            bias=conv.bias is not None,
+            padding_mode=conv.padding_mode
+        )
+        with torch.no_grad():
+            new_submodule.conv.weight.copy_(conv.weight)
+            new_submodule.conv.bias.copy_(b)
+        mod.add_submodule(str(n.target), new_submodule)
+        return
 
     def harden_weights(self):
         for branch in self.mix_activ.mix_activ:

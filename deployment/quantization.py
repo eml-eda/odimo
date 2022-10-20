@@ -20,6 +20,7 @@ def _compute_int_bparams(s_w, s_x, s_y, b_16, n_sh, lut):
     b_8 = []
     n_b = []
     n_ch = s_w.shape[0]
+    device = s_w.device
     for idx in range(n_ch):
         diff = torch.abs(
             lut -
@@ -27,7 +28,7 @@ def _compute_int_bparams(s_w, s_x, s_y, b_16, n_sh, lut):
         argmin = (diff == diff.amin()).nonzero(as_tuple=True)
         n_b.append(argmin[0] if len(argmin[0]) == 1 else argmin[0][0])
         b_8.append(argmin[1] + A_MIN if len(argmin[1]) == 1 else argmin[1][0] + A_MIN)
-    return b_8, n_b
+    return torch.tensor(b_8, device=device), torch.tensor(n_b, device=device)
 
 
 def _compute_int_wparams(s_w, s_x, s_y, max_act, lut):
@@ -36,18 +37,31 @@ def _compute_int_wparams(s_w, s_x, s_y, max_act, lut):
     n_ch = s_w.shape[0]
     device = max_act.device
     for idx in range(n_ch):
-        mask_lut = torch.cat((
-            torch.arange(A_MIN, 0),
-            torch.arange(1, A_MAX+1))
-            ).to(device) < torch.abs(2**15 / max_act[idx])
-        diff = torch.abs(lut[:, mask_lut] - (s_w[idx] * s_x / s_y))
+        if max_act[idx]:
+            mask_lut = torch.cat((
+                torch.arange(A_MIN, 0).to(device) > 2**15 / max_act[idx],
+                torch.arange(1, A_MAX+1).to(device) < 2**15 / max_act[idx])
+                )
+            diff = torch.abs(lut[:, mask_lut] - (s_w[idx] * s_x / s_y))
+        else:
+            diff = torch.abs(lut - (s_w[idx] * s_x / s_y))
         argmin = (diff == diff.amin()).nonzero(as_tuple=True)
         n_sh.append(argmin[0] if len(argmin[0]) == 1 else argmin[0][0])
         alpha.append(argmin[1] + A_MIN if len(argmin[1]) == 1 else argmin[1][0] + A_MIN)
         if alpha[-1] >= 0:
             alpha[-1] += 1
 
-    return alpha, n_sh
+    return torch.tensor(alpha, device=device), torch.tensor(n_sh, device=device)
+
+
+def _compute_b_fakeint(b_8, n_b, alpha):
+    b_fakeint = b_8 * 2**n_b / alpha
+    return b_fakeint
+
+
+def _compute_s_x_fakeint(alpha, n_sh, s_y_fakeint, s_w):
+    s_x_fakeint = (alpha * s_y_fakeint) / (2**n_sh * s_w)
+    return s_x_fakeint
 
 
 # NB: should be modified to support multi-ch prec
@@ -89,7 +103,7 @@ class QuantizationTracer(fx.Tracer):
 # MR: questa funzione si puo' specializzare poi per diversi backend
 def build_qgraph(
     model: nn.Module,
-    output_classes: int,
+    scale_input: float,
     target_layers: tuple[Type[nn.Module], ...]
 ) -> nn.Module:
     """
@@ -101,8 +115,8 @@ def build_qgraph(
 
     :param model: nn.Module whit quantization information
     :type model: nn.Module
-    :param output_classes: number of output classes
-    :type output_classes: int
+    :param scale_input: scale-factor of input
+    :type scale_input: float
     :param target_layers: set of nn.Module where quantization information
     should be extracted
     :type target_layers: tuple[Type[nn.Module], ...]
@@ -116,26 +130,36 @@ def build_qgraph(
     modules = dict(mod.named_modules())
     device = next(model.parameters()).device
 
-    s_y = torch.ones((1,)).to(device)
+    s_y = torch.tensor((1,), device=device)  # Not sure with this 1...
+    s_y_fakeint = torch.tensor([scale_input], device=device)
+
     lut_a = torch.tensor([
                     [a / 2**sh for a in range(A_MIN, A_MAX+1) if a != 0]
-                    for sh in range(SH_MAX+1)]
-                ).to(device)
+                    for sh in range(SH_MAX+1)],
+                    device=device)
     lut_b = torch.tensor([
                     [b * 2**sh for b in range(A_MIN, A_MAX+1)]
-                    for sh in range(SH_MAX+1)]
-                ).to(device)
+                    for sh in range(SH_MAX+1)],
+                    device=device)
 
     for n in reversed(mod.graph.nodes):
         m = modules.get(n.target)
         if isinstance(m, target_layers):
             with torch.no_grad():
                 s_x, s_w, b_16 = _extract_qinfo(m)
-                max_act = modules.get(n.next.target).max_val
-                alpha, n_sh = _compute_int_wparams(s_w, s_x, s_y, max_act, lut_a)
-                b_8, n_b = _compute_int_bparams(s_w, s_x, s_y, b_16, n_sh, lut_b)
-                # m.autoconvert(alpha, n_sh, b_8, n_b)  # TODO: To be implemented
+                if m.wbits == [2]:
+                    max_act = modules.get(n.next.target).max_val
+                    alpha, n_sh = _compute_int_wparams(s_w, s_x, s_y, max_act, lut_a)
+                    b_8, n_b = _compute_int_bparams(s_w, s_x, s_y, b_16, n_sh, lut_b)
+                    # I think that the next three steps need to be performed with
+                    # a subsequent forward pass of the graph
+                    s_x_fakeint = _compute_s_x_fakeint(alpha, n_sh, s_y_fakeint, s_w)
+                    b_fakeint = _compute_b_fakeint(b_8, n_b, alpha)
+                    m.autoconvert(n, mod, s_x_fakeint, b_fakeint)
+                else:
+                    s_x_fakeint = s_x
                 s_y = s_x  # propagate s_x backward
+                s_y_fakeint = s_x_fakeint  # propagate s_x_fakeint backward
     mod.graph.lint()
     mod.recompile()
     return mod
