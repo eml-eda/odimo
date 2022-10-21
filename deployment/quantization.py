@@ -59,9 +59,9 @@ def _compute_b_fakeint(b_8, n_b, alpha):
     return b_fakeint
 
 
-def _compute_s_x_fakeint(alpha, n_sh, s_y_fakeint, s_w):
-    s_x_fakeint = (alpha * s_y_fakeint) / (2**n_sh * s_w)
-    return s_x_fakeint
+def _compute_s_y_fakeint(alpha, n_sh, s_x_fakeint, s_w):
+    s_y_fakeint = (s_w * s_x_fakeint * 2**n_sh) / alpha
+    return s_y_fakeint
 
 
 # NB: should be modified to support multi-ch prec
@@ -103,7 +103,7 @@ class QuantizationTracer(fx.Tracer):
 # MR: questa funzione si puo' specializzare poi per diversi backend
 def build_qgraph(
     model: nn.Module,
-    scale_input: float,
+    output_classes: int,
     target_layers: tuple[Type[nn.Module], ...]
 ) -> nn.Module:
     """
@@ -115,8 +115,8 @@ def build_qgraph(
 
     :param model: nn.Module whit quantization information
     :type model: nn.Module
-    :param scale_input: scale-factor of input
-    :type scale_input: float
+    :param output_classes: number of output classes
+    :type output_classes: int
     :param target_layers: set of nn.Module where quantization information
     should be extracted
     :type target_layers: tuple[Type[nn.Module], ...]
@@ -131,7 +131,7 @@ def build_qgraph(
     device = next(model.parameters()).device
 
     s_y = torch.tensor((1,), device=device)  # Not sure with this 1...
-    s_y_fakeint = torch.tensor([scale_input], device=device)
+    s_x_fakeint = torch.tensor((1,), device=device)
 
     lut_a = torch.tensor([
                     [a / 2**sh for a in range(A_MIN, A_MAX+1) if a != 0]
@@ -142,24 +142,42 @@ def build_qgraph(
                     for sh in range(SH_MAX+1)],
                     device=device)
 
+    # Backward - Annotate graph
     for n in reversed(mod.graph.nodes):
         m = modules.get(n.target)
         if isinstance(m, target_layers):
             with torch.no_grad():
                 s_x, s_w, b_16 = _extract_qinfo(m)
+                n.meta['s_x'] = s_x
+                n.meta['s_w'] = s_w
+                n.meta['b_16'] = b_16
                 if m.wbits == [2]:
                     max_act = modules.get(n.next.target).max_val
                     alpha, n_sh = _compute_int_wparams(s_w, s_x, s_y, max_act, lut_a)
+                    n.meta['alpha'] = alpha
+                    n.meta['n_sh'] = n_sh
                     b_8, n_b = _compute_int_bparams(s_w, s_x, s_y, b_16, n_sh, lut_b)
-                    # I think that the next three steps need to be performed with
-                    # a subsequent forward pass of the graph
-                    s_x_fakeint = _compute_s_x_fakeint(alpha, n_sh, s_y_fakeint, s_w)
-                    b_fakeint = _compute_b_fakeint(b_8, n_b, alpha)
-                    m.autoconvert(n, mod, s_x_fakeint, b_fakeint)
-                else:
-                    s_x_fakeint = s_x
+                    n.meta['b_8'] = b_8
+                    n.meta['n_b'] = n_b
                 s_y = s_x  # propagate s_x backward
-                s_y_fakeint = s_x_fakeint  # propagate s_x_fakeint backward
+
+    # Forward - Transform graph
+    # for n in mod.graph.nodes:
+    #     m = modules.get(n.target)
+    #     if isinstance(m, target_layers):
+    #         with torch.no_grad():  # Assume first layer 0n 8b (TOBEMODIFIED!)
+    #             if m.wbits == [2]:
+    #                 b_fakeint = _compute_b_fakeint(n.meta['b_8'],
+    #                                                n.meta['n_b'],
+    #                                                n.meta['alpha'])
+    #                 m.autoconvert(n, mod, s_y_fakeint, b_fakeint)
+    #                 s_y_fakeint = _compute_s_y_fakeint(n.meta['alpha'],
+    #                                                    n.meta['n_sh'],
+    #                                                    s_x_fakeint,
+    #                                                    n.meta['s_w'])
+    #             else:
+    #                 s_y_fakeint = n.meta['s_x']
+    #             s_x_fakeint = s_y_fakeint  # propagate s_y_fakeint forward
     mod.graph.lint()
     mod.recompile()
     return mod
