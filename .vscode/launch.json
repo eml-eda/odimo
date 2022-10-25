@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python: mbv1_w2a7_true_deploy",
+            "name": "Python: mbv1_w2a7_deploy",
             "type": "python",
             "request": "launch",
             "program": "deploy.py",
@@ -13,10 +13,10 @@
             "justMyCode": true,
             "cwd": "${workspaceFolder}/visual_wake_words",
             "args": [
-                "mobilenetv1_w2a7_true_foldbn/model_debug",
-                "-a", "quantmobilenetv1_w2a7_true_foldbn",
+                "mobilenetv1_w2a7_foldbn/model_debug",
+                "-a", "quantmobilenetv1_w2a7_foldbn",
                 "--ac", "warmup.pth.tar",
-                "--pretrained-w", "w2a7_true.pth.tar",
+                "--pretrained-w", "w2a7.pth.tar",
                 "-b", "32",
                 "--workers", "0",
                 "--seed", "42",

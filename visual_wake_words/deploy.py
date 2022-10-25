@@ -135,6 +135,9 @@ def main_worker(args):
         torch.cuda.set_device(args.gpu)
         model = model.cuda(args.gpu)
 
+    # Check that pretrained model is working properly
+    validate(test_loader, model, args)
+
     # Insert observers
     obs_model = insert_observers(model, target_layers=(model.conv_func,))
     if args.gpu is not None:

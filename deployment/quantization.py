@@ -20,6 +20,7 @@ def _compute_int_bparams(s_w, s_x, s_y, b_16, n_sh, lut):
     b_8 = []
     n_b = []
     n_ch = s_w.shape[0]
+    device = s_w.device
     for idx in range(n_ch):
         diff = torch.abs(
             lut -
@@ -27,7 +28,7 @@ def _compute_int_bparams(s_w, s_x, s_y, b_16, n_sh, lut):
         argmin = (diff == diff.amin()).nonzero(as_tuple=True)
         n_b.append(argmin[0] if len(argmin[0]) == 1 else argmin[0][0])
         b_8.append(argmin[1] + A_MIN if len(argmin[1]) == 1 else argmin[1][0] + A_MIN)
-    return b_8, n_b
+    return torch.tensor(b_8, device=device), torch.tensor(n_b, device=device)
 
 
 def _compute_int_wparams(s_w, s_x, s_y, max_act, lut):
@@ -36,18 +37,31 @@ def _compute_int_wparams(s_w, s_x, s_y, max_act, lut):
     n_ch = s_w.shape[0]
     device = max_act.device
     for idx in range(n_ch):
-        mask_lut = torch.cat((
-            torch.arange(A_MIN, 0),
-            torch.arange(1, A_MAX+1))
-            ).to(device) < torch.abs(2**15 / max_act[idx])
-        diff = torch.abs(lut[:, mask_lut] - (s_w[idx] * s_x / s_y))
+        if max_act[idx]:
+            mask_lut = torch.cat((
+                torch.arange(A_MIN, 0).to(device) > 2**15 / max_act[idx],
+                torch.arange(1, A_MAX+1).to(device) < 2**15 / max_act[idx])
+                )
+            diff = torch.abs(lut[:, mask_lut] - (s_w[idx] * s_x / s_y))
+        else:
+            diff = torch.abs(lut - (s_w[idx] * s_x / s_y))
         argmin = (diff == diff.amin()).nonzero(as_tuple=True)
         n_sh.append(argmin[0] if len(argmin[0]) == 1 else argmin[0][0])
         alpha.append(argmin[1] + A_MIN if len(argmin[1]) == 1 else argmin[1][0] + A_MIN)
         if alpha[-1] >= 0:
             alpha[-1] += 1
 
-    return alpha, n_sh
+    return torch.tensor(alpha, device=device), torch.tensor(n_sh, device=device)
+
+
+def _compute_b_fakeint(b_8, n_b, alpha):
+    b_fakeint = b_8 * 2**n_b / alpha
+    return b_fakeint
+
+
+def _compute_s_y_fakeint(alpha, n_sh, s_x_fakeint, s_w):
+    s_y_fakeint = (s_w * s_x_fakeint * 2**n_sh) / alpha
+    return s_y_fakeint
 
 
 # NB: should be modified to support multi-ch prec
@@ -116,26 +130,54 @@ def build_qgraph(
     modules = dict(mod.named_modules())
     device = next(model.parameters()).device
 
-    s_y = torch.ones((1,)).to(device)
+    s_y = torch.tensor((1,), device=device)  # Not sure with this 1...
+    s_x_fakeint = torch.tensor((1,), device=device)
+
     lut_a = torch.tensor([
                     [a / 2**sh for a in range(A_MIN, A_MAX+1) if a != 0]
-                    for sh in range(SH_MAX+1)]
-                ).to(device)
+                    for sh in range(SH_MAX+1)],
+                    device=device)
     lut_b = torch.tensor([
                     [b * 2**sh for b in range(A_MIN, A_MAX+1)]
-                    for sh in range(SH_MAX+1)]
-                ).to(device)
+                    for sh in range(SH_MAX+1)],
+                    device=device)
 
+    # Backward - Annotate graph
     for n in reversed(mod.graph.nodes):
         m = modules.get(n.target)
         if isinstance(m, target_layers):
             with torch.no_grad():
                 s_x, s_w, b_16 = _extract_qinfo(m)
-                max_act = modules.get(n.next.target).max_val
-                alpha, n_sh = _compute_int_wparams(s_w, s_x, s_y, max_act, lut_a)
-                b_8, n_b = _compute_int_bparams(s_w, s_x, s_y, b_16, n_sh, lut_b)
-                # m.autoconvert(alpha, n_sh, b_8, n_b)  # TODO: To be implemented
+                n.meta['s_x'] = s_x
+                n.meta['s_w'] = s_w
+                n.meta['b_16'] = b_16
+                if m.wbits == [2]:
+                    max_act = modules.get(n.next.target).max_val
+                    alpha, n_sh = _compute_int_wparams(s_w, s_x, s_y, max_act, lut_a)
+                    n.meta['alpha'] = alpha
+                    n.meta['n_sh'] = n_sh
+                    b_8, n_b = _compute_int_bparams(s_w, s_x, s_y, b_16, n_sh, lut_b)
+                    n.meta['b_8'] = b_8
+                    n.meta['n_b'] = n_b
                 s_y = s_x  # propagate s_x backward
+
+    # Forward - Transform graph
+    # for n in mod.graph.nodes:
+    #     m = modules.get(n.target)
+    #     if isinstance(m, target_layers):
+    #         with torch.no_grad():  # Assume first layer 0n 8b (TOBEMODIFIED!)
+    #             if m.wbits == [2]:
+    #                 b_fakeint = _compute_b_fakeint(n.meta['b_8'],
+    #                                                n.meta['n_b'],
+    #                                                n.meta['alpha'])
+    #                 m.autoconvert(n, mod, s_y_fakeint, b_fakeint)
+    #                 s_y_fakeint = _compute_s_y_fakeint(n.meta['alpha'],
+    #                                                    n.meta['n_sh'],
+    #                                                    s_x_fakeint,
+    #                                                    n.meta['s_w'])
+    #             else:
+    #                 s_y_fakeint = n.meta['s_x']
+    #             s_x_fakeint = s_y_fakeint  # propagate s_y_fakeint forward
     mod.graph.lint()
     mod.recompile()
     return mod
