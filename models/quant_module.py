@@ -11,6 +11,7 @@ from torch.distributions import Normal
 from torch.nn.parameter import Parameter
 
 from . import int_module as im
+from deployment.quantization import IntegerizationMode
 
 
 # DJP (TODO: test symmetric quant)
@@ -430,8 +431,7 @@ class QuantMultiPrecActivConv2d(nn.Module):
         return out
 
     @staticmethod
-    def autoconvert(n: fx.Node, mod: fx.GraphModule,
-                    s_x: torch.Tensor, b: torch.Tensor):
+    def autoconvert(n: fx.Node, mod: fx.GraphModule, mode: IntegerizationMode):
         """Replaces a fx.Node corresponding to a QuantMultiPrecActivConv2d,
         with a FakeIntMultiPrecActivConv2d layer within a fx.GraphModule
 
@@ -440,30 +440,45 @@ class QuantMultiPrecActivConv2d(nn.Module):
         :type n: fx.Node
         :param mod: the parent module, where the new node has to be inserted
         :type mod: fx.GraphModule
-        :param s_x: activation fakeint scale-factor
-        :type s_x: torch.Tensor
-        :param b: fakeint bias
-        :type b: torch.Tensor
+        :param mode: integerization mode. Use `IntegerizationMode.Int` or
+        `IntegerizationMode.FakeInt`
+        :type mode: IntegerizationMode
         """
         submodule = mod.get_submodule(str(n.target))
         if type(submodule) != QuantMultiPrecActivConv2d:
             raise TypeError(f"Trying to export a layer of type{type(submodule)}")
         conv = submodule.mix_weight.conv
-        new_submodule = im.FakeIntMultiPrecActivConv2d(
-            s_x, submodule.abits, submodule.wbits,
-            in_channels=conv.in_channels,
-            out_channels=conv.out_channels,
-            kernel_size=conv.kernel_size,
-            stride=conv.stride,
-            padding=conv.padding,
-            dilation=conv.dilation,
-            groups=conv.groups,
-            bias=conv.bias is not None,
-            padding_mode=conv.padding_mode
-        )
+        if mode is IntegerizationMode.FakeInt:  # TODO
+            new_submodule = im.FakeIntMultiPrecActivConv2d(
+                n.meta['s_x'], submodule.abits, submodule.wbits,
+                in_channels=conv.in_channels,
+                out_channels=conv.out_channels,
+                kernel_size=conv.kernel_size,
+                stride=conv.stride,
+                padding=conv.padding,
+                dilation=conv.dilation,
+                groups=conv.groups,
+                bias=conv.bias is not None,
+                padding_mode=conv.padding_mode
+            )
+        elif mode is IntegerizationMode.Int:
+            new_submodule = im.IntMultiPrecActivConv2d(
+                n.meta, submodule.abits, submodule.wbits,
+                in_channels=conv.in_channels,
+                out_channels=conv.out_channels,
+                kernel_size=conv.kernel_size,
+                stride=conv.stride,
+                padding=conv.padding,
+                dilation=conv.dilation,
+                groups=conv.groups,
+                bias=False,
+                padding_mode=conv.padding_mode
+            )
+
         with torch.no_grad():
-            new_submodule.conv.weight.copy_(conv.weight)
-            new_submodule.conv.bias.copy_(b)
+            new_submodule.mix_weight.conv.weight.copy_(conv.weight)
+            new_submodule.mix_weight.alpha_weight.copy_(submodule.mix_weight.alpha_weight)
+            # new_submodule.conv.bias.copy_(b)
         mod.add_submodule(str(n.target), new_submodule)
         return
 

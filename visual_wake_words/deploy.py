@@ -1,4 +1,5 @@
 import argparse
+import copy
 import os
 import pathlib
 import random
@@ -7,6 +8,7 @@ import warnings
 
 import numpy as np
 import torch
+# import torch.nn.functional as F
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.optim
@@ -15,7 +17,7 @@ import torch.utils.data.distributed
 
 from data import get_data, build_dataloaders
 from deployment.observer import insert_observers
-from deployment.quantization import build_qgraph
+from deployment.quantization import IntegerizationMode, build_qgraph
 import models
 
 model_names = sorted(name for name in models.__dict__
@@ -136,10 +138,10 @@ def main_worker(args):
         model = model.cuda(args.gpu)
 
     # Check that pretrained model is working properly
-    validate(test_loader, model, args)
+    # validate(test_loader, model, args)
 
     # Insert observers
-    obs_model = insert_observers(model, target_layers=(model.conv_func,))
+    obs_model = insert_observers(copy.deepcopy(model), target_layers=(model.conv_func,))
     if args.gpu is not None:
         obs_model = obs_model.cuda(args.gpu)
     obs_model.eval()
@@ -147,12 +149,19 @@ def main_worker(args):
 
     collect_stats(val_loader, obs_model, args)
     obs_model.store_hardened_weights()
-    int_model = build_qgraph(obs_model,
+    int_model = build_qgraph(copy.deepcopy(obs_model),
                              output_classes=2,
-                             target_layers=(model.conv_func,))
+                             target_layers=(model.conv_func,),
+                             mode=IntegerizationMode.Int)
+
+    if args.gpu is not None:
+        torch.cuda.set_device(args.gpu)
+        int_model = int_model.cuda(args.gpu)
 
     # define loss function (criterion) and optimizer
     # criterion = nn.CrossEntropyLoss().cuda(args.gpu)
+
+    compare_models(test_loader, model, int_model, args)
 
     validate(test_loader, int_model, args)
 
@@ -166,6 +175,121 @@ def collect_stats(loader, model, args):
 
             # compute output
             model(images)
+
+
+def compare_models(loader, fq_model, int_model, args):
+    fq_model.eval()
+    int_model.eval()
+
+    def _act(x):
+        return torch.floor(torch.min(  # ReLU127
+                    torch.max(torch.tensor(0.), x),
+                    torch.tensor(127.))
+            )
+
+    with torch.no_grad():
+        for i, (images, target) in enumerate(loader):
+            if args.gpu is not None:
+                images = images.cuda(args.gpu, non_blocking=True)
+            target = target.cuda(args.gpu, non_blocking=True)
+
+            for image in images:
+                image = image.unsqueeze(0)
+                # label = target[0]
+
+                # fq_out = fq_model(image)
+
+                # int_out = int_model(image)
+
+                # Input Layer
+                fq_act1, act_scale = fq_model.input_layer.mix_activ(image)
+                fq_out1 = fq_model.input_layer.mix_weight(fq_act1, act_scale)
+                fq_act2, act_scale = fq_model.backbone.bb_1.depth.mix_activ(fq_out1)
+
+                int_act1 = int_model.input_layer.mix_activ(image)
+                int_out1 = _act(int_model.input_layer.mix_weight(int_act1))
+
+                diff_max = torch.abs(int_out1 - (fq_act2 * 127 / act_scale)).max()
+
+                print(f'Input Layer diff max: {diff_max}')
+
+                # First Depthwise
+                fq_out2 = fq_model.backbone.bb_1.depth.mix_weight(fq_act2, act_scale)
+                fq_act3, act_scale = fq_model.backbone.bb_1.point.mix_activ(fq_out2)
+
+                # int_act2 = int_model.backbone.bb_1.depth.mix_activ(int_out1)
+                int_out2 = _act(int_model.backbone.bb_1.depth.mix_weight(int_out1))
+
+                diff_max = torch.abs(int_out2 - (fq_act3 * 127 / act_scale)).max()
+
+                print(f'First Depthwise diff max: {diff_max}')
+
+                # First Pointwise
+                fq_out3 = fq_model.backbone.bb_1.point.mix_weight(fq_act3, act_scale)
+                fq_act4, act_scale = fq_model.backbone.bb_2.depth.mix_activ(fq_out3)
+
+                # int_act2 = int_model.backbone.bb_1.depth.mix_activ(int_out1)
+                int_out3 = _act(int_model.backbone.bb_1.point.mix_weight(int_out2))
+
+                diff_max = torch.abs(int_out3 - (fq_act4 * 127 / act_scale)).max()
+
+                print(f'First Pointwise diff max: {diff_max}')
+
+                # bb_2-bb_5
+                fq_out7 = fq_model.backbone.bb_5(
+                    fq_model.backbone.bb_4(
+                        fq_model.backbone.bb_3(
+                            fq_model.backbone.bb_2(fq_out3))))
+                fq_act8, act_scale = fq_model.backbone.bb_6.depth.mix_activ(fq_out7)
+
+                int_out6 = _act(int_model.backbone.bb_5.point(int_model.backbone.bb_5.depth(
+                    int_model.backbone.bb_4.point(int_model.backbone.bb_4.depth(
+                        int_model.backbone.bb_3.point(int_model.backbone.bb_3.depth(
+                            int_model.backbone.bb_2.point(int_model.backbone.bb_2.depth(
+                                int_out3)))))))))
+
+                diff_max = torch.abs(int_out6 - (fq_act8 * 127 / act_scale)).max()
+
+                print(f'bb_2-bb_5 diff max: {diff_max}')
+
+                # bb_6-bb_12
+                fq_out14 = fq_model.backbone.bb_12(
+                    fq_model.backbone.bb_11(
+                        fq_model.backbone.bb_10(
+                            fq_model.backbone.bb_9(
+                                fq_model.backbone.bb_8(
+                                    fq_model.backbone.bb_7(
+                                        fq_model.backbone.bb_6(
+                                            fq_out7)))))))
+                fq_act15, act_scale = fq_model.backbone.bb_13.depth.mix_activ(fq_out14)
+
+                int_out12 = _act(int_model.backbone.bb_12.point(int_model.backbone.bb_12.depth(
+                    int_model.backbone.bb_11.point(int_model.backbone.bb_11.depth(
+                        int_model.backbone.bb_10.point(int_model.backbone.bb_10.depth(
+                            int_model.backbone.bb_9.point(int_model.backbone.bb_9.depth(
+                                int_model.backbone.bb_8.point(int_model.backbone.bb_8.depth(
+                                    int_model.backbone.bb_7.point(int_model.backbone.bb_7.depth(
+                                        int_model.backbone.bb_6.point(int_model.backbone.bb_6.depth(
+                                            int_out6)))))))))))))))
+
+                diff_max = torch.abs(int_out12 - (fq_act15 * 127 / act_scale)).max()
+
+                print(f'bb_6-bb_12 diff max: {diff_max}')
+
+                # bb13 - pool
+                fq_out15 = fq_model.backbone.bb_13(fq_out14)
+
+                # int_out13 = _act(int_model.backbone.bb_13.point(
+                #     int_model.backbone.bb_13.depth(int_out12)))
+                int_out13 = int_model.backbone.bb_13.point(
+                    int_model.backbone.bb_13.depth(int_out12))
+
+                fq_pool, act_scale = fq_model.fc.mix_activ(fq_model.backbone.pool(fq_out15))
+                int_pool = int_model.backbone.pool(int_out13)
+
+                diff_max = torch.abs(int_pool - (fq_pool * 127 / act_scale)).max()
+
+                print(f'pool diff max: {diff_max}')
 
 
 def validate(loader, model, args):
