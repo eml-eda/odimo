@@ -11,7 +11,7 @@ from torch.distributions import Normal
 from torch.nn.parameter import Parameter
 
 from . import int_module as im
-from deployment.quantization import IntegerizationMode
+from deployment.utils import IntegerizationMode
 
 
 # DJP (TODO: test symmetric quant)
@@ -354,6 +354,67 @@ class FQConvWeightQuantization(nn.Module):
             scale_param={self.scale_param})'
 
 
+class QuantAvgPool2d(nn.Module):
+
+    def __init__(self, abits, kernel_size, **kwargs):
+        super().__init__()
+        # Quantizer activations
+        self.abits = abits
+        max_inp_val = kwargs.pop('max_inp_val', 6.)
+        self.mix_activ = QuantPaCTActiv(abits, max_inp_val)
+
+        # Pooling
+        self.kernel_size = kernel_size
+        self.pool = nn.AvgPool2d(kernel_size)
+
+    def forward(self, x):
+        q_x, _ = self.mix_activ(x)
+        out = self.pool(q_x)
+        return out
+
+    @staticmethod
+    def autoconvert(n: fx.Node, mod: fx.GraphModule, mode: IntegerizationMode):
+        """Replaces a fx.Node corresponding to a QuantAvgPool2d,
+        with a (Fake)IntAvgPool2d layer within a fx.GraphModule
+
+        :param n: the node to be rewritten, corresponds to a
+        QuantAvgPool2d layer
+        :type n: fx.Node
+        :param mod: the parent module, where the new node has to be inserted
+        :type mod: fx.GraphModule
+        :param mode: integerization mode. Use `IntegerizationMode.Int` or
+        `IntegerizationMode.FakeInt`
+        :type mode: IntegerizationMode
+        """
+        submodule = mod.get_submodule(str(n.target))
+        if type(submodule) != QuantAvgPool2d:
+            raise TypeError(f"Trying to export a layer of type{type(submodule)}")
+        pool = submodule.pool
+        if mode is IntegerizationMode.FakeInt:
+            new_submodule = im.FakeIntAvgPool2d(
+                n.meta, submodule.abits,
+                kernel_size=pool.kernel_size,
+                stride=pool.stride,
+                padding=pool.padding,
+                ceil_mode=pool.ceil_mode,
+                count_include_pad=pool.count_include_pad,
+                divisor_override=pool.divisor_override
+            )
+        elif mode is IntegerizationMode.Int:
+            new_submodule = im.IntAvgPool2d(
+                n.meta,
+                kernel_size=pool.kernel_size,
+                stride=pool.stride,
+                padding=pool.padding,
+                ceil_mode=pool.ceil_mode,
+                count_include_pad=pool.count_include_pad,
+                divisor_override=pool.divisor_override
+            )
+
+        mod.add_submodule(str(n.target), new_submodule)
+        return
+
+
 # MR
 class QuantMultiPrecActivConv2d(nn.Module):
 
@@ -371,7 +432,9 @@ class QuantMultiPrecActivConv2d(nn.Module):
             self.fc = fc
         else:
             self.fc = False
-        self.mix_activ = QuantPaCTActiv(abits)
+
+        max_inp_val = kwargs.pop('max_inp_val', 6.)
+        self.mix_activ = QuantPaCTActiv(abits, max_inp_val)
         # self.mix_activ = QuantFQActiv(abits)
         if not fc:
             self.mix_weight = QuantMultiPrecConv2d(inplane, outplane, wbits, abits=abits, **kwargs)
@@ -448,9 +511,9 @@ class QuantMultiPrecActivConv2d(nn.Module):
         if type(submodule) != QuantMultiPrecActivConv2d:
             raise TypeError(f"Trying to export a layer of type{type(submodule)}")
         conv = submodule.mix_weight.conv
-        if mode is IntegerizationMode.FakeInt:  # TODO
+        if mode is IntegerizationMode.FakeInt:
             new_submodule = im.FakeIntMultiPrecActivConv2d(
-                n.meta['s_x'], submodule.abits, submodule.wbits,
+                n.meta, submodule.abits, submodule.wbits,
                 in_channels=conv.in_channels,
                 out_channels=conv.out_channels,
                 kernel_size=conv.kernel_size,
@@ -458,7 +521,7 @@ class QuantMultiPrecActivConv2d(nn.Module):
                 padding=conv.padding,
                 dilation=conv.dilation,
                 groups=conv.groups,
-                bias=conv.bias is not None,
+                bias=False,
                 padding_mode=conv.padding_mode
             )
         elif mode is IntegerizationMode.Int:
@@ -482,13 +545,13 @@ class QuantMultiPrecActivConv2d(nn.Module):
         mod.add_submodule(str(n.target), new_submodule)
         return
 
-    def harden_weights(self):
+    def harden_weights(self, dequantize):
         for branch in self.mix_activ.mix_activ:
-            branch.dequantize = False
+            branch.dequantize = dequantize
         for branch in self.mix_weight.mix_weight:
-            branch.dequantize = False
+            branch.dequantize = dequantize
         for branch in self.mix_weight.mix_bias:
-            branch.dequantize = False
+            branch.dequantize = dequantize
 
     def store_hardened_weights(self):
         act_scale = []
@@ -526,17 +589,20 @@ class QuantFQActiv(nn.Module):
 # MR
 class QuantPaCTActiv(nn.Module):
 
-    def __init__(self, bits):
+    def __init__(self, bits, max_inp_val=6.):
         super(QuantPaCTActiv, self).__init__()
         if type(bits) == int:
             self.bits = [bits]
         else:
             self.bits = bits
+        self.max_inp_val = max_inp_val
         self.alpha_activ = Parameter(torch.Tensor(len(self.bits)), requires_grad=False)
         self.alpha_activ.data.fill_(0.01)
         self.mix_activ = nn.ModuleList()
         for bit in self.bits:
-            self.mix_activ.append(LearnedClippedLinearQuantization(num_bits=bit))
+            self.mix_activ.append(
+                LearnedClippedLinearQuantization(num_bits=bit,
+                                                 init_act_clip_val=max_inp_val))
 
     def forward(self, input):
         outs = list()
@@ -694,6 +760,7 @@ class FpConv2d(nn.Module):
 
         self.fine_tune = kwargs.pop('fine_tune', False)
         self.fc = kwargs.pop('fc', False)
+        kwargs.pop('max_inp_val', 6.)
 
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
         self.relu = nn.ReLU()

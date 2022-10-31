@@ -7,10 +7,13 @@ import torch.nn as nn
 
 import deployment.utils as utils
 
+import models.quant_module as qm
+
 __all__ = [
     'ObserverBase',
     'PerChannelMaxObserver',
     'insert_observers',
+    'remove_observers',
 ]
 
 
@@ -105,6 +108,8 @@ def insert_observers(
     for n in mod.graph.nodes:
         if n.target in modules.keys():
             if isinstance(modules[n.target], target_layers):
+                if isinstance(modules[n.target], qm.QuantAvgPool2d):
+                    continue  # TODO: dirty asf to be fixed!!!!
                 new_obs_name = f'{n.target}_observer'
                 new_obs = observer()
                 mod.add_submodule(new_obs_name, new_obs)
@@ -114,4 +119,45 @@ def insert_observers(
     mod.recompile()
     # Re-add removed custom attributes contained in model to mod
     utils.add_attributes(model, mod)
+    return mod
+
+
+def remove_observers(
+    model: nn.Module,
+    target_layers: tuple[Type[nn.Module], ...],
+    observer: ObserverBase = PerChannelMaxObserver
+) -> nn.Module:
+    """
+    Attaches an `observer` to the output of every `target_layers` found
+    in `model`.
+
+    :param model: nn.Module where observers shoud be inserted
+    :type model: nn.Module
+    :param target_layers: set of nn.Module where an observer should be inserted
+    :type target_layers: Iterable[Type[nn.Module]]
+    :param observer: observer module to be used,
+    default to PerChannelMaxObserver
+    :type observer: ObserverBase, optional
+    :return: a `model` copy with `observer`
+    :rtype: nn.Module
+    """
+    # model_device = next(model.parameters()).device
+    tracer = ObserverTracer(target_layers+(observer,))
+    graph = tracer.trace(model.eval())
+    name = model.__class__.__name__
+    mod = fx.GraphModule(tracer.root, graph, name)
+    modules = dict(mod.named_modules())
+    for n in mod.graph.nodes:
+        if n.target in modules.keys():
+            if isinstance(modules[n.target], observer):
+                mod.delete_submodule(n.target)
+                # with mod.graph.inserting_after(n):
+                #     new_node = mod.graph.call_function(torch.identity, n.args, n.kwargs)
+                #     n.replace_all_uses_with(new_node)
+                mod.graph.erase_node(n)
+    mod.graph.lint()
+    mod.recompile()
+    # Re-add removed custom attributes contained in model to mod
+    exclude_attr = (observer)
+    utils.add_attributes(model, mod, exclude_attr)
     return mod

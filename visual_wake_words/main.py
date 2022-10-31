@@ -364,6 +364,7 @@ def train(train_loader, model, criterion, optimizer, q_optimizer, epoch, args):
         target = target.cuda(args.gpu, non_blocking=True)
 
         # compute output
+        # images = images * 255
         output = model(images)
         loss = criterion(output, target)
 
@@ -418,6 +419,7 @@ def validate(val_loader, model, criterion, epoch, args):
             target = target.cuda(args.gpu, non_blocking=True)
 
             # compute output
+            # images = images * 255
             output = model(images)
             loss = criterion(output, target)
 

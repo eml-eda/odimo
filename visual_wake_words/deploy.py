@@ -16,9 +16,11 @@ import torch.utils.data
 import torch.utils.data.distributed
 
 from data import get_data, build_dataloaders
-from deployment.observer import insert_observers
+from deployment.observer import insert_observers, remove_observers
 from deployment.quantization import IntegerizationMode, build_qgraph
 import models
+import models.quant_module as qm
+from models.int_module import FakeIntMultiPrecActivConv2d, FakeIntAvgPool2d
 
 model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
@@ -138,30 +140,57 @@ def main_worker(args):
         model = model.cuda(args.gpu)
 
     # Check that pretrained model is working properly
-    # validate(test_loader, model, args)
+    validate(test_loader, model, args)
 
     # Insert observers
-    obs_model = insert_observers(copy.deepcopy(model), target_layers=(model.conv_func,))
+    obs_model = insert_observers(copy.deepcopy(model),
+                                 target_layers=(model.conv_func,
+                                                qm.QuantAvgPool2d))
     if args.gpu is not None:
         obs_model = obs_model.cuda(args.gpu)
     obs_model.eval()
     obs_model.harden_weights()
 
     collect_stats(val_loader, obs_model, args)
+
+    fakeint_model = build_qgraph(copy.deepcopy(obs_model),
+                                 output_classes=2,
+                                 target_layers=(model.conv_func, qm.QuantAvgPool2d),
+                                 mode=IntegerizationMode.FakeInt)
+    fakeint_model = remove_observers(copy.deepcopy(fakeint_model),
+                                     target_layers=(FakeIntMultiPrecActivConv2d,
+                                                    FakeIntAvgPool2d))
+    criterion = torch.nn.CrossEntropyLoss()
+
+    if args.gpu is not None:
+        fakeint_model = fakeint_model.cuda(args.gpu)
+        criterion = criterion.cuda(args.gpu)
+
+    # group model/quantization parameters
+    params, q_params = [], []
+    for name, param in fakeint_model.named_parameters():
+        if ('clip_val' in name) or ('scale_param' in name):
+            q_params += [param]
+        else:
+            params += [param]
+
+    optimizer = torch.optim.Adam(params, args.lr,
+                                 weight_decay=args.weight_decay)
+
+    train(train_loader, val_loader, test_loader,
+          fakeint_model, criterion, optimizer, args.epochs, args)
+
     obs_model.store_hardened_weights()
     int_model = build_qgraph(copy.deepcopy(obs_model),
                              output_classes=2,
-                             target_layers=(model.conv_func,),
+                             target_layers=(model.conv_func, qm.QuantAvgPool2d),
                              mode=IntegerizationMode.Int)
 
     if args.gpu is not None:
         torch.cuda.set_device(args.gpu)
         int_model = int_model.cuda(args.gpu)
 
-    # define loss function (criterion) and optimizer
-    # criterion = nn.CrossEntropyLoss().cuda(args.gpu)
-
-    compare_models(test_loader, model, int_model, args)
+    # compare_models(test_loader, model, int_model, args)
 
     validate(test_loader, int_model, args)
 
@@ -174,6 +203,7 @@ def collect_stats(loader, model, args):
             target = target.cuda(args.gpu, non_blocking=True)
 
             # compute output
+            # images = 255 * images
             model(images)
 
 
@@ -182,10 +212,11 @@ def compare_models(loader, fq_model, int_model, args):
     int_model.eval()
 
     def _act(x):
-        return torch.floor(torch.min(  # ReLU127
+        return torch.round(torch.min(  # ReLU127
                     torch.max(torch.tensor(0.), x),
                     torch.tensor(127.))
             )
+        # return torch.nn.functional.relu(x)
 
     with torch.no_grad():
         for i, (images, target) in enumerate(loader):
@@ -193,6 +224,7 @@ def compare_models(loader, fq_model, int_model, args):
                 images = images.cuda(args.gpu, non_blocking=True)
             target = target.cuda(args.gpu, non_blocking=True)
 
+            # images = 255 * images
             for image in images:
                 image = image.unsqueeze(0)
                 # label = target[0]
@@ -285,11 +317,62 @@ def compare_models(loader, fq_model, int_model, args):
                     int_model.backbone.bb_13.depth(int_out12))
 
                 fq_pool, act_scale = fq_model.fc.mix_activ(fq_model.backbone.pool(fq_out15))
-                int_pool = int_model.backbone.pool(int_out13)
+                int_pool = _act(int_model.backbone.pool(int_out13))
 
                 diff_max = torch.abs(int_pool - (fq_pool * 127 / act_scale)).max()
 
                 print(f'pool diff max: {diff_max}')
+
+
+def train(train_loader, val_loader, test_loader, model, criterion, optimizer, epochs, args):
+    for epoch in range(epochs):
+        batch_time = AverageMeter('Time', ':6.3f')
+        data_time = AverageMeter('Data', ':6.3f')
+        losses = AverageMeter('Loss', ':.4e')
+        top1 = AverageMeter('Acc@1', ':6.2f')
+        curr_lr = optimizer.param_groups[0]['lr']
+        progress = ProgressMeter(
+            len(train_loader),
+            [batch_time, data_time, losses, top1],
+            prefix="Epoch: [{}/{}]\t"
+                   "LR: {}\t".format(epoch, args.epochs, curr_lr))
+
+        # switch to train mode
+        model.train()
+
+        end = time.time()
+        for i, (images, target) in enumerate(train_loader):
+            # measure data loading time
+            data_time.update(time.time() - end)
+
+            if args.gpu is not None:
+                images = images.cuda(args.gpu, non_blocking=True)
+            target = target.cuda(args.gpu, non_blocking=True)
+
+            # compute output
+            # for i in range(10000):
+            output = model(images)
+            loss = criterion(output, target)
+
+            # measure accuracy and record loss
+            acc1 = accuracy(output, target, topk=(1,))[0]
+            losses.update(loss.item(), images.size(0))
+            top1.update(acc1[0], images.size(0))
+
+            # compute gradient and do SGD step
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            if i % args.print_freq == 0:
+                progress.display(i)
+
+        validate(val_loader, model, args)
+        validate(test_loader, model, args)
 
 
 def validate(loader, model, args):
@@ -311,6 +394,7 @@ def validate(loader, model, args):
             target = target.cuda(args.gpu, non_blocking=True)
 
             # compute output
+            # images = 255 * images
             output = model(images)
 
             # measure accuracy and record loss

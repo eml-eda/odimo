@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from . import utils
 from . import quant_module as qm
@@ -59,6 +60,7 @@ class Backbone(nn.Module):
 
     def __init__(self, conv_func, input_size, bn, width_mult, abits, wbits,
                  **kwargs):
+        self.fp = conv_func is qm.FpConv2d
         super().__init__()
         self.bb_1 = BasicBlock(
             conv_func, make_divisible(32*width_mult), make_divisible(64*width_mult),
@@ -99,7 +101,11 @@ class Backbone(nn.Module):
         self.bb_13 = BasicBlock(
             conv_func, make_divisible(1024*width_mult), make_divisible(1024*width_mult),
             wbits[24:26], abits[24:26], stride=1, bn=bn, **kwargs)
-        self.pool = nn.AvgPool2d(int(input_size / (2**5)))
+        if not self.fp:
+            # If not fp we use quantized pooling
+            self.pool = qm.QuantAvgPool2d(abits[0], int(input_size / (2**5)))
+        else:
+            self.pool = nn.AvgPool2d(int(input_size / (2**5)))
 
     def forward(self, x):
         out = self.bb_1(x)
@@ -115,6 +121,8 @@ class Backbone(nn.Module):
         out = self.bb_11(out)
         out = self.bb_12(out)
         out = self.bb_13(out)
+        if self.fp:
+            out = F.relu(out)
         out = self.pool(out)
         return out
 
@@ -143,7 +151,8 @@ class MobileNetV1(nn.Module):
         self.input_layer = conv_func(3, make_divisible(32*width_mult),
                                      abits=archas[0], wbits=archws[0],
                                      kernel_size=3, stride=2, padding=1,
-                                     bias=False, groups=1, **kwargs)
+                                     bias=self.use_bias, groups=1,
+                                     max_inp_val=1.0, **kwargs)
         if bn:
             self.inp_bn = nn.BatchNorm2d(make_divisible(32*width_mult))
         self.backbone = Backbone(conv_func, input_size, bn, width_mult,
@@ -178,10 +187,10 @@ class MobileNetV1(nn.Module):
 
         return x
 
-    def harden_weights(self):
+    def harden_weights(self, dequantize=False):
         for _, module in self.named_modules():
             if isinstance(module, self.conv_func):
-                module.harden_weights()
+                module.harden_weights(dequantize=dequantize)
 
     def store_hardened_weights(self):
         with torch.no_grad():
