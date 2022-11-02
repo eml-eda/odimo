@@ -817,7 +817,7 @@ class QuantMixChanConv2d(nn.Module):
 # DJP
 class MixQuantPaCTActiv(nn.Module):
 
-    def __init__(self, bits, gumbel=False):
+    def __init__(self, bits, max_inp_val=6., gumbel=False):
         super().__init__()
         self.bits = bits
         self.gumbel = gumbel
@@ -825,7 +825,8 @@ class MixQuantPaCTActiv(nn.Module):
         self.alpha_activ.data.fill_(0.01)
         self.mix_activ = nn.ModuleList()
         for bit in self.bits:
-            self.mix_activ.append(LearnedClippedLinearQuantization(num_bits=bit))
+            self.mix_activ.append(LearnedClippedLinearQuantization(num_bits=bit,
+                                                                   init_act_clip_val=max_inp_val))
 
     def forward(self, input, temp, is_hard):
         outs = list()
@@ -1049,8 +1050,10 @@ class MultiPrecActivConv2d(nn.Module):
         self.gumbel = kwargs.pop('gumbel', False)
         self.temp = 1
 
+        max_inp_val = kwargs.pop('max_inp_val', 6.)
+
         # build mix-precision branches
-        self.mix_activ = MixQuantPaCTActiv(self.abits, gumbel=self.gumbel)
+        self.mix_activ = MixQuantPaCTActiv(self.abits, max_inp_val, gumbel=self.gumbel)
         # for multiprec, only share-weight is feasible
         assert share_weight
         if not self.fc:
@@ -1083,6 +1086,7 @@ class MultiPrecActivConv2d(nn.Module):
             self.k_x = kwargs['kernel_size']
             self.k_y = kwargs['kernel_size']
         self.ch_in = inplane
+        self.groups = kwargs['groups']
         self.out_x = None
         self.out_y = None
         self.param_size = inplane * outplane * kernel_size / kwargs['groups'] * 1e-6
@@ -1121,6 +1125,7 @@ class MultiPrecActivConv2d(nn.Module):
             'ch_in': self.ch_in,
             'k_x': self.k_x,
             'k_y': self.k_y,
+            'groups': self.groups,
             'out_x': self.out_x,
             'out_y': self.out_y,
             }
@@ -1215,6 +1220,7 @@ class MultiPrecActivConv2d(nn.Module):
             'ch_in': self.ch_in,
             'k_x': self.k_x,
             'k_y': self.k_y,
+            'groups': self.groups,
             'out_x': self.out_x,
             'out_y': self.out_y,
             }

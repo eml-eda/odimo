@@ -72,6 +72,10 @@ def _analog_cycles(**kwargs):
     ch_eff = kwargs['ch_out']
     k_x = kwargs['k_x']
     k_y = kwargs['k_y']
+    groups = kwargs['groups']
+    if groups != 1:
+        msg = f'groups={groups}. Analog accelerator supports only groups=1'
+        raise ValueError(msg)
     out_x = kwargs['out_x']
     out_y = kwargs['out_y']
     ox_unroll_base = ComputeOxUnrollSTE.apply(ch_eff, ch_in, k_x, k_y)

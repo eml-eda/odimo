@@ -214,7 +214,7 @@ def init_scale_param(model):
                         # init_scale_param = torch.zeros([cout], dtype=torch.float32)
                         init_scale_param = submodule.scale_param
                         delta = .1
-                        target = .66
+                        target = .33
                         non_zero_frac = _non_zero_frac(w, init_scale_param, cout)
                         while any(non_zero_frac < target):
                             init_scale_param[non_zero_frac < target] -= delta

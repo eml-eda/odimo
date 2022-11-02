@@ -35,7 +35,7 @@ def _compute_analog_bparams(s_w, s_x, s_y, b_16, n_sh, lut):
     return torch.tensor(b_8, device=device), torch.tensor(n_b, device=device)
 
 
-def _compute_analog_bparams_v2(alpha, b_16, lut):
+def _compute_analog_bparams_v2_old(alpha, b_16, lut):
     b_8 = []
     n_b = []
     n_ch = alpha.shape[0]
@@ -73,7 +73,7 @@ def _compute_analog_bparams_v2(alpha, b_16, lut):
 #     return torch.tensor(alpha, device=device), torch.tensor(n_sh, device=device)
 
 
-def _compute_analog_wparams(s_w, s_x, s_y, max_act, lut):
+def _compute_analog_wparams_old(s_w, s_x, s_y, max_act, lut):
     alpha = []
     n_sh = []
     n_ch = s_w.shape[0]
@@ -85,6 +85,7 @@ def _compute_analog_wparams(s_w, s_x, s_y, max_act, lut):
         else:
             diff = torch.abs(lut - (s_w[idx] * s_x / s_y))
         argmin = (diff == diff.amin()).nonzero(as_tuple=True)
+        print(f'Approx Error: {100 * (diff.amin() / (s_w[idx] * s_x / s_y)).item()}%')
         n_sh.append(argmin[0] if len(argmin[0]) == 1 else argmin[0][0])
         alpha.append(argmin[1] + 1 if len(argmin[1]) == 1 else argmin[1][0] + 1)
 
@@ -103,25 +104,66 @@ def _compute_digital_wparams_old(s_w, s_x, s_y, lut):
     return argmin[0][0], argmin[1][0]+1  # to be removed
 
 
-def _compute_digital_wparams(s_w, s_x, s_y, sh_b, alpha_b=0):
-    target = (s_w * s_x / s_y).clone().detach().cpu()
+def _integer_approximation(target, sh_b, alpha_b=0):
+    device = target.device
+    target = target.clone().detach().cpu()
 
     params = []
+    sh_list = []
+    alpha_list = []
     upper_bound = 2**(alpha_b - 1) - 1 if alpha_b != 0 else 1
-    for sh in range(sh_b):
-        params.append(
-            [sh, _binary_search(2**-sh, 1, upper_bound, target)]
-            )
-    min_diff = float('inf')
-    min_sh, min_alpha = None, None
-    for param in params:
-        sh, alpha = param[0], param[1]
-        diff = abs(alpha/2**sh - target)
-        if diff < min_diff:
-            min_diff = diff
-            min_sh, min_alpha = sh, alpha
-    print(f'Approx Error: {(100 * min_diff / target).item()}%')
-    return min_sh, min_alpha
+
+    for idx in range(len(target)):
+        for sh in range(sh_b):
+            params.append(
+                [sh, _binary_search(2**-sh, 1, upper_bound, target[idx])]
+                )
+        min_diff = float('inf')
+        min_sh, min_alpha = None, None
+        for param in params:
+            sh, alpha = param[0], param[1]
+            diff = abs(alpha/2**sh - target[idx])
+            if diff < min_diff:
+                min_diff = diff
+                min_sh, min_alpha = sh, alpha
+        sh_list.append(min_sh)
+        alpha_list.append(min_alpha)
+        # print(f'Approx Error: {(100 * min_diff / target[idx]).item()}%')
+    if len(sh_list) == 1:
+        return sh_list[0], alpha_list[0]
+    else:
+        return torch.tensor(sh_list, device=device), torch.tensor(alpha_list, device=device)
+
+
+def _integer_approximation_bias(target, sh_b, alpha_b=0):
+    device = target.device
+    target = target.clone().detach().cpu()
+
+    params = []
+    sh_list = []
+    alpha_list = []
+    upper_bound = 2**(alpha_b - 1) - 1 if alpha_b != 0 else 1
+
+    for idx in range(len(target)):
+        for sh in range(sh_b):
+            params.append(
+                [sh, _binary_search(2**sh, -upper_bound-1, upper_bound, target[idx])]
+                )
+        min_diff = float('inf')
+        min_sh, min_alpha = None, None
+        for param in params:
+            sh, alpha = param[0], param[1]
+            diff = abs(alpha*2**sh - target[idx])
+            if diff < min_diff:
+                min_diff = diff
+                min_sh, min_alpha = sh, alpha
+        sh_list.append(min_sh)
+        alpha_list.append(min_alpha)
+        # print(f'Approx Error: {(100 * min_diff / target[idx]).item()}%')
+    if len(sh_list) == 1:
+        return sh_list[0], alpha_list[0]
+    else:
+        return torch.tensor(sh_list, device=device), torch.tensor(alpha_list, device=device)
 
 
 def _binary_search(div, low, high, x):
@@ -263,23 +305,26 @@ def build_qgraph(
                     n.meta['b_16'] = b_16
                     if m.wbits == [2]:
                         max_act = modules.get(n.next.target).max_val
-                        alpha, n_sh = _compute_analog_wparams(s_w, s_x, s_y, max_act,
-                                                              lut_analog_w)
+                        alpha, n_sh = _compute_analog_wparams_old(s_w, s_x, s_y, max_act,
+                                                                  lut_analog_w)
+                        # target = s_w * s_x / s_y
+                        # n_sh, alpha = _integer_approximation(target, sh_b=16, alpha_b=8)
                         n.meta['alpha'] = alpha
                         n.meta['n_sh'] = n_sh
                         # b_8, n_b = _compute_analog_bparams(s_w, s_x, s_y, b_16, n_sh,
                         #                                    lut_analog_b)
-                        b_8, n_b = _compute_analog_bparams_v2(alpha, b_16,
-                                                              lut_analog_b)
+                        b_8, n_b = _compute_analog_bparams_v2_old(alpha, b_16,
+                                                                  lut_analog_b)
+                        # target = alpha * b_16
+                        # n_b, b_8 = _integer_approximation_bias(target, sh_b=8, alpha_b=8)
                         n.meta['b_8'] = b_8
                         n.meta['n_b'] = n_b
                     elif m.wbits == [8]:
                         # alpha to be removed
                         # n_sh_old, alpha_old = _compute_digital_wparams_old(s_w, s_x, s_y,
                         #                                                    lut_digital_w)
-                        n_sh, alpha = _compute_digital_wparams(s_w, s_x, s_y,
-                                                               sh_b=32,
-                                                               alpha_b=0)
+                        target = s_w * s_x / s_y
+                        n_sh, alpha = _integer_approximation(target, sh_b=32, alpha_b=0)
                         n.meta['n_sh'] = n_sh
                         n.meta['alpha'] = alpha  # to be removed
                     else:
@@ -316,8 +361,10 @@ def build_qgraph(
                             s_y_fakeint = 2**n.meta['n_sh'] * n.meta['s_w'] * \
                                 n.meta['s_x_fakeint'] / n.meta['alpha']  # 's_x_fakeint' or 's_x' ??
                             if n.meta['b_16'] is not None:
-                                n.meta['bias'] = 2**n.meta['n_sh'] * n.meta['b_16'] * n.meta['s_w'] * \
-                                    n.meta['s_x_fakeint']  # 's_x_fakeint' or 's_x' ??
+                                # n.meta['bias'] = 2**n.meta['n_sh'] * n.meta['b_16'] * \
+                                #     n.meta['s_w'] * n.meta['s_x']  # 's_x_fakeint' or 's_x' ??
+                                n.meta['bias'] = n.meta['b_16'] * n.meta['s_w'] \
+                                    * n.meta['s_x_fakeint']  # 's_x_fakeint' or 's_x' ??
                             else:
                                 n.meta['bias'] = None
 

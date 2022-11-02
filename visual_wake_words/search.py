@@ -93,7 +93,7 @@ parser.add_argument('--no-gumbel-softmax', dest='gumbel_softmax', action='store_
 parser.add_argument('--hard-gs', action='store_true', default=False, help='use hard gumbel-softmax')
 parser.add_argument('--temperature', default=5, type=float, help='Initial temperature value')
 parser.add_argument('--anneal-temp', action='store_true', default=False, help='anneal temperature')
-parser.add_argument('-p', '--print-freq', default=10, type=int,
+parser.add_argument('-p', '--print-freq', default=100, type=int,
                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
@@ -279,14 +279,14 @@ def main_worker(gpu, ngpus_per_node, args):
 
     optimizer = torch.optim.Adam(params, args.lr,
                                  weight_decay=args.weight_decay)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
-                                                milestones=[20, 30],
-                                                gamma=0.5)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+                                                     milestones=[20, 30],
+                                                     gamma=0.5)
     # arch_optimizer = torch.optim.SGD(alpha_params, args.lra, momentum=args.momentum,
     #                                  weight_decay=args.alpha_decay)
     arch_optimizer = torch.optim.Adam(alpha_params, args.lra)
     q_optimizer = torch.optim.SGD(q_params, args.lrq)
-    q_scheduler = torch.optim.lr_scheduler.StepLR(q_optimizer, 10)
+    q_scheduler = torch.optim.lr_scheduler.StepLR(q_optimizer, 7)
 
     # optionally resume from a checkpoint
     if args.resume:
