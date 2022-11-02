@@ -151,10 +151,10 @@ class MobileNetV1(nn.Module):
         self.input_layer = conv_func(3, make_divisible(32*width_mult),
                                      abits=archas[0], wbits=archws[0],
                                      kernel_size=3, stride=2, padding=1,
-                                     bias=self.use_bias, groups=1,
+                                     bias=False, groups=1,
                                      max_inp_val=1.0, **kwargs)
         if bn:
-            self.inp_bn = nn.BatchNorm2d(make_divisible(32*width_mult))
+            self.bn = nn.BatchNorm2d(make_divisible(32*width_mult))
         self.backbone = Backbone(conv_func, input_size, bn, width_mult,
                                  abits=archas[1:-1], wbits=archws[1:-1],
                                  **kwargs)
@@ -181,7 +181,7 @@ class MobileNetV1(nn.Module):
     def forward(self, x):
         x = self.input_layer(x)
         if self.bn:
-            x = self.inp_bn(x)
+            x = self.bn(x)
         x = self.backbone(x)
         x = self.fc(x)[:, :, 0, 0]
 

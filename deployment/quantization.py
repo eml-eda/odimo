@@ -324,7 +324,7 @@ def build_qgraph(
                         # n_sh_old, alpha_old = _compute_digital_wparams_old(s_w, s_x, s_y,
                         #                                                    lut_digital_w)
                         target = s_w * s_x / s_y
-                        n_sh, alpha = _integer_approximation(target, sh_b=32, alpha_b=0)
+                        n_sh, alpha = _integer_approximation(target, sh_b=32, alpha_b=8)
                         n.meta['n_sh'] = n_sh
                         n.meta['alpha'] = alpha  # to be removed
                     else:

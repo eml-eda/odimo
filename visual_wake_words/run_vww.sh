@@ -18,7 +18,8 @@ mkdir -p ${path}/${arch}/model_${strength}/${timestamp}
 
 export WANDB_MODE=offline
 
-pretrained_model="warmup_bias.pth.tar"
+# pretrained_model="warmup_bias.pth.tar"
+pretrained_model="warmup.pth.tar"
 if [[ "$4" == "search" ]]; then
     echo Search
     split=0.0
@@ -29,7 +30,7 @@ if [[ "$4" == "search" ]]; then
         --ac ${pretrained_model} --patience 10 \
         --lr 0.001 --lra 0.001 --wd 1e-4 \
         --ai same --cd ${strength} --rt weights \
-        --seed 42 --gpu 0 --workers 0 \
+        --seed 42 --gpu 0 --workers 4 \
         --no-gumbel-softmax --temperature 1 --anneal-temp \
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/${timestamp}/log_search_${strength}.txt
 fi
@@ -45,8 +46,10 @@ if [[ "$5" == "ft" ]]; then
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/${timestamp}/log_finetune_${strength}.txt
 else
     echo From-Scratch
-    # pretrained_model="warmup.pth.tar"
-    pretrained_model="warmup_bias.pth.tar"
+    pretrained_model="warmup.pth.tar"
+    # pretrained_model="warmup2.pth.tar"
+    # pretrained_model="warmup_bias.pth.tar"
+    # pretrained_model="warmup_gold.pth.tar"
     python3 main.py ${path}/${arch}/model_${strength}/${timestamp} -a quant${arch} \
         --val-split 0.1 \
         --epochs 50 --step-epoch 10 -b 32 --patience 10 \

@@ -212,12 +212,12 @@ class MobileNetV1(nn.Module):
         self.gumbel = kwargs.get('gumbel', False)
 
         # Model
-        self.input_layer = conv3x3(conv_func, hw_model, is_searchable[0],
+        self.input_layer = conv3x3(conv_func, hw_model, False,
                                    3, make_divisible(32*width_mult),
                                    stride=2, groups=1,
-                                   bias=self.use_bias, max_inp_val=1.0, **kwargs)
+                                   bias=False, max_inp_val=1.0, **kwargs)
         if bn:
-            self.inp_bn = nn.BatchNorm2d(make_divisible(32*width_mult))
+            self.bn = nn.BatchNorm2d(make_divisible(32*width_mult))
         self.backbone = Backbone(conv_func, hw_model, is_searchable[1:-1],
                                  input_size, bn, width_mult, **kwargs)
 
@@ -234,14 +234,14 @@ class MobileNetV1(nn.Module):
                     m.bias.data.zero_()
 
         # Final classifier
-        self.fc = fc(conv_func, hw_model, is_searchable[-1],
+        self.fc = fc(conv_func, hw_model, False,
                      make_divisible(1024*width_mult), num_classes,
                      search_fc=self.search_fc, **kwargs)
 
     def forward(self, x, temp, is_hard):
         x = self.input_layer(x, temp, is_hard)
         if self.bn:
-            x = self.inp_bn(x)
+            x = self.bn(x)
         x = self.backbone(x, temp, is_hard)
         x = self.fc(x, temp, is_hard)[:, :, 0, 0]
         return x

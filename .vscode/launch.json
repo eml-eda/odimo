@@ -36,8 +36,8 @@
             "args": [
                 "mobilenetv1_w2a7_foldbn/model_debug",
                 "-a", "quantmobilenetv1_w2a7_foldbn",
-                "--ac", "warmup.pth.tar",
-                "--pretrained-w", "w2a7_bias.pth.tar",
+                "--ac", "warmup2.pth.tar",
+                "--pretrained-w", "w2a7.pth.tar",
                 "-b", "32",
                 "--workers", "0",
                 "--seed", "42",

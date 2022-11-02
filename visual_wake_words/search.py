@@ -93,7 +93,7 @@ parser.add_argument('--no-gumbel-softmax', dest='gumbel_softmax', action='store_
 parser.add_argument('--hard-gs', action='store_true', default=False, help='use hard gumbel-softmax')
 parser.add_argument('--temperature', default=5, type=float, help='Initial temperature value')
 parser.add_argument('--anneal-temp', action='store_true', default=False, help='anneal temperature')
-parser.add_argument('-p', '--print-freq', default=100, type=int,
+parser.add_argument('-p', '--print-freq', default=50, type=int,
                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')

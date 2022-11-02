@@ -16,11 +16,11 @@ import torch.utils.data
 import torch.utils.data.distributed
 
 from data import get_data, build_dataloaders
-from deployment.observer import insert_observers, remove_observers
+from deployment.observer import insert_observers  # , remove_observers
 from deployment.quantization import IntegerizationMode, build_qgraph
 import models
 import models.quant_module as qm
-from models.int_module import FakeIntMultiPrecActivConv2d, FakeIntAvgPool2d
+# from models.int_module import FakeIntMultiPrecActivConv2d, FakeIntAvgPool2d
 
 model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
@@ -153,6 +153,7 @@ def main_worker(args):
 
     collect_stats(val_loader, obs_model, args)
 
+    '''
     fakeint_model = build_qgraph(copy.deepcopy(obs_model),
                                  output_classes=2,
                                  target_layers=(model.conv_func, qm.QuantAvgPool2d),
@@ -179,6 +180,7 @@ def main_worker(args):
 
     train(train_loader, val_loader, test_loader,
           fakeint_model, criterion, optimizer, args.epochs, args)
+    '''
 
     obs_model.store_hardened_weights()
     int_model = build_qgraph(copy.deepcopy(obs_model),
