@@ -182,10 +182,9 @@ class Backbone(nn.Module):
         out = self.bb_11(out, temp, is_hard)
         out = self.bb_12(out, temp, is_hard)
         out = self.bb_13(out, temp, is_hard)
-        # import pdb; pdb.set_trace()
         if self.fp:
             out = F.relu(out)
-        out = self.pool.pool(out)
+        out = self.pool(out)
         return out
 
 

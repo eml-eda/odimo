@@ -202,7 +202,7 @@ def fpfold_to_q(state_dict):
 def init_scale_param(model):
     with torch.no_grad():
         for name, module in model.named_modules():
-            if isinstance(module, qm.QuantMultiPrecConv2d):
+            if isinstance(module, (qm.QuantMultiPrecConv2d, qm.SharedMultiPrecConv2d)):
                 w = module.conv.weight
                 for submodule in module.mix_weight:
                     nb = submodule.num_bits

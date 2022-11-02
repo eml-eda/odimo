@@ -67,6 +67,36 @@
             ]
         },
         {
+            "name": "Python: mbv1_diana_full",
+            "type": "python",
+            "request": "launch",
+            "program": "search.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/visual_wake_words",
+            "args": [
+                "mobilenetv1_diana_full/model_debug",
+                "-a", "mixmobilenetv1_diana_full",
+                "--val-split", "0.1",
+                "--cd", "0.0e+0",
+                "--epochs", "50",
+                "--step-epoch", "10",
+                "-b", "32",
+                "--workers", "4",
+                "--patience", "10",
+                "--lr", "0.001",
+                "--lra", "0.001",
+                "--lrq", "1e-5",
+                "--wd", "1e-4",
+                "--no-gumbel-softmax",
+                "--temperature", "1",
+                "--anneal-temp",
+                "--ac", "warmup.pth.tar",
+                "--seed", "42",
+                "--gpu", "0"
+            ]
+        },
+        {
             "name": "Python: mbv1_w8a7_foldbn",
             "type": "python",
             "request": "launch",
