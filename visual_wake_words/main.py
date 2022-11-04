@@ -71,6 +71,8 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('--arch-cfg', '--ac', default='', type=str, metavar='PATH',
                     help='path to architecture configuration')
+parser.add_argument('--pretrained-w', default='', type=str, metavar='PATH',
+                    help='path to pretrained weights')
 # MR
 parser.add_argument('-ft', '--fine-tune', dest='fine_tune', action='store_true',
                     help='use pre-trained weights from search phase')
@@ -188,10 +190,12 @@ def main_worker(gpu, ngpus_per_node, args):
 
     data_dir = args.data.parent.parent.parent / 'data'
     data = get_data(data_dir=data_dir,
-                    val_split=args.val_split)
+                    val_split=args.val_split,
+                    seed=args.seed)
     train_loader, val_loader, test_loader = build_dataloaders(data,
                                                               batch_size=args.batch_size,
-                                                              num_workers=args.workers)
+                                                              num_workers=args.workers,
+                                                              seed=args.seed)
 
     # create model
     print("=> creating model '{}'".format(args.arch))
@@ -280,7 +284,9 @@ def main_worker(gpu, ngpus_per_node, args):
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     if args.evaluate:
-        validate(val_loader, model, criterion, args)
+        pretrained_w = torch.load(args.pretrained_w)['state_dict']
+        model.load_state_dict(pretrained_w)
+        validate(test_loader, model, criterion, 0, args)
         return
 
     best_epoch = args.start_epoch
@@ -324,6 +330,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 'arch': args.arch,
                 'state_dict': model.state_dict(),
                 'best_acc1': best_acc1,
+                'best_acc1_test': best_acc1_test,
                 'optimizer': optimizer.state_dict(),
             }, is_best, epoch, args.step_epoch)
 

@@ -82,7 +82,7 @@ class IntMultiPrecActivConv2d(nn.Module):
 
     def __init__(self, int_params, abits, wbits, **kwargs):
         super().__init__()
-        self.act_scale = int_params['s_x']
+        self.act_scale = int_params['s_x'][7]  # TODO: remove hard-code
         self.abits = abits
         self.wbits = wbits
         self.first_layer = int_params['first']
@@ -111,11 +111,9 @@ class IntMultiPrecConv2d(nn.Module):
 
         self.b_16 = int_params['b_16']
         self.n_sh = int_params['n_sh']
-        self.alpha = int_params['alpha']  # to be removed
-        if wbits == [2]:
-            self.alpha = int_params['alpha']
-            self.b_8 = int_params['b_8']
-            self.n_b = int_params['n_b']
+        self.alpha = int_params['alpha']
+        self.b_8 = int_params['b_8']
+        self.n_b = int_params['n_b']
 
         self.cout = kwargs['out_channels']
 
@@ -137,22 +135,24 @@ class IntMultiPrecConv2d(nn.Module):
                 conv_out = F.conv2d(
                     x, eff_weight, None, conv.stride,
                     conv.padding, conv.dilation, conv.groups)
-                alpha = self.alpha.view(1, self.cout, 1, 1)
-                b = (self.b_8 * 2**self.n_b).view(1, self.cout, 1, 1)
-                scale_out = alpha * conv_out + b
-                shift = (2**self.n_sh).view(1, self.cout, 1, 1)
-                out.append(scale_out / shift)
+                alpha = self.alpha[bit].view(1, self.cout, 1, 1)
+                b = (self.b_8[bit] * 2**self.n_b[bit]).view(1, self.cout, 1, 1)
+                shift = (2**self.n_sh[bit]).view(1, self.cout, 1, 1)
+                scale_out = (alpha * conv_out + b) / shift
+                eff_out = scale_out * sw[i].view((1, self.cout, 1, 1))
+                out.append(eff_out)
             elif bit == 8:
-                if self.b_16 is not None:
-                    eff_bias = self.b_16 * sw[i].view(self.cout)
+                if self.b_16[bit] is not None:
+                    eff_bias = self.b_16[bit] * sw[i].view(self.cout)
                 else:
                     eff_bias = None
                 conv_out = F.conv2d(
                     x, eff_weight, eff_bias, conv.stride,
                     conv.padding, conv.dilation, conv.groups)
-                scale_out = self.alpha * conv_out / 2**self.n_sh  # to be removed
+                scale_out = self.alpha[bit] * conv_out / 2**self.n_sh[bit]  # to be removed
                 # out.append(conv_out / 2**self.n_sh)
-                out.append(scale_out)  # to be removed
+                eff_out = scale_out * sw[i].view((1, self.cout, 1, 1))
+                out.append(eff_out)  # to be removed
         out = sum(out)
 
         return out

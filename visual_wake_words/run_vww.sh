@@ -26,8 +26,8 @@ if [[ "$4" == "search" ]]; then
     # NB: add --warmup-8bit if needed
     python3 search.py ${path}/${arch}/model_${strength}/${timestamp} -a mix${arch} \
         --val-split 0.1 \
-        --epochs 50 --step-epoch 10 -b 32 \
-        --ac ${pretrained_model} --patience 10 \
+        --epochs 100 --step-epoch 10 -b 32 \
+        --ac ${pretrained_model} --patience 20 \
         --lr 0.001 --lra 0.001 --wd 1e-4 \
         --ai same --cd ${strength} --rt weights \
         --seed 42 --gpu 0 --workers 4 \
@@ -39,9 +39,9 @@ if [[ "$5" == "ft" ]]; then
     echo Fine-Tune
     python3 main.py ${path}/${arch}/model_${strength}/${timestamp} -a quant${arch} \
         --val-split 0.1 \
-        --epochs 50 --step-epoch 10 -b 32 --patience 10 \
+        --epochs 100 --step-epoch 10 -b 32 --patience 20 \
         --lr 0.0005 --wd 1e-4 \
-        --seed 42 --gpu 0 --workers 0 \
+        --seed 42 --gpu 0 --workers 4 \
         --ac ${arch}/model_${strength}/${timestamp}/arch_model_best.pth.tar -ft \
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/${timestamp}/log_finetune_${strength}.txt
 else

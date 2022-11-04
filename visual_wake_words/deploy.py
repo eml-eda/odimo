@@ -117,7 +117,8 @@ def main_worker(args):
 
     data_dir = args.data.parent.parent.parent / 'data'
     data = get_data(data_dir=data_dir,
-                    val_split=0.2)
+                    val_split=0.1,
+                    seed=args.seed)
     train_loader, val_loader, test_loader = build_dataloaders(data,
                                                               batch_size=args.batch_size,
                                                               num_workers=args.workers)
@@ -133,7 +134,7 @@ def main_worker(args):
     model = model_fn(
         args.arch_cfg, fine_tune=args.fine_tune)
     pretrained_w = torch.load(args.pretrained_w)['state_dict']
-    model.load_state_dict(pretrained_w)
+    model.load_state_dict(pretrained_w, strict=False)
 
     if args.gpu is not None:
         torch.cuda.set_device(args.gpu)

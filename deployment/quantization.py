@@ -79,13 +79,13 @@ def _compute_analog_wparams_old(s_w, s_x, s_y, max_act, lut):
     n_ch = s_w.shape[0]
     device = max_act.device
     for idx in range(n_ch):
-        if max_act[idx]:
+        if 0:  # if max_act[idx]:
             mask_lut = torch.arange(1, A_MAX+1).to(device) < 2**15 / abs(max_act[idx])
             diff = torch.abs(lut[:, mask_lut] - (s_w[idx] * s_x / s_y))
         else:
             diff = torch.abs(lut - (s_w[idx] * s_x / s_y))
         argmin = (diff == diff.amin()).nonzero(as_tuple=True)
-        print(f'Approx Error: {100 * (diff.amin() / (s_w[idx] * s_x / s_y)).item()}%')
+        # print(f'Approx Error: {100 * (diff.amin() / (s_w[idx] * s_x / s_y)).item()}%')
         n_sh.append(argmin[0] if len(argmin[0]) == 1 else argmin[0][0])
         alpha.append(argmin[1] + 1 if len(argmin[1]) == 1 else argmin[1][0] + 1)
 
@@ -191,14 +191,17 @@ def _compute_s_y_fakeint(alpha, n_sh, s_x_fakeint, s_w):
     return s_y_fakeint
 
 
-# TODO: should be modified to support multi-ch prec
 def _extract_qinfo(module):
-    q_a = module.mix_activ.mix_activ[0]
-    q_w = module.mix_weight.mix_weight[0]
+    s_x, s_w, b_16 = dict(), dict(), dict()
 
-    s_x = q_a.clip_val / (2**q_a.num_bits - 1)
-    s_w = torch.exp(q_w.scale_param) / (2**(q_w.num_bits - 1) - 1)
-    b_16 = module.mix_weight.conv.bias
+    # q_a = module.mix_activ.mix_activ[0]
+    for q_a in module.mix_activ.mix_activ:
+        s_x[q_a.num_bits] = q_a.clip_val / (2**q_a.num_bits - 1)
+
+    # q_w = module.mix_weight.mix_weight[0]
+    for q_w in module.mix_weight.mix_weight:
+        s_w[q_w.num_bits] = torch.exp(q_w.scale_param) / (2**(q_w.num_bits - 1) - 1)
+        b_16[q_w.num_bits] = module.mix_weight.conv.bias
     return s_x, s_w, b_16
 
 
@@ -266,7 +269,8 @@ def build_qgraph(
     modules = dict(mod.named_modules())
     device = next(model.parameters()).device
 
-    s_y = torch.tensor((1,), device=device)
+    # TODO: find better way than hard-coding 7 for act
+    s_y = {7: torch.tensor((1,), device=device)}
     s_y_fakeint = torch.tensor((1,), device=device)
 
     # lut_analog_w = torch.tensor([
@@ -294,41 +298,47 @@ def build_qgraph(
         if isinstance(m, target_layers):
             with torch.no_grad():
                 if isinstance(m, qm.QuantAvgPool2d):
-                    q_a = m.mix_activ.mix_activ[0]
-                    s_x = q_a.clip_val / (2**q_a.num_bits - 1)
-                    n.meta['s_x'] = s_x
-                    n.meta['s_y'] = s_y
+                    s_x = dict()
+                    for q_a in m.mix_activ.mix_activ:
+                        s_x[q_a.num_bits] = q_a.clip_val / (2**q_a.num_bits - 1)
+                    n.meta['s_x'] = s_x[7]
+                    n.meta['s_y'] = s_y[7]
                 else:
                     s_x, s_w, b_16 = _extract_qinfo(m)
                     n.meta['s_x'] = s_x
                     n.meta['s_w'] = s_w
                     n.meta['b_16'] = b_16
-                    if m.wbits == [2]:
-                        max_act = modules.get(n.next.target).max_val
-                        alpha, n_sh = _compute_analog_wparams_old(s_w, s_x, s_y, max_act,
-                                                                  lut_analog_w)
-                        # target = s_w * s_x / s_y
-                        # n_sh, alpha = _integer_approximation(target, sh_b=16, alpha_b=8)
-                        n.meta['alpha'] = alpha
-                        n.meta['n_sh'] = n_sh
-                        # b_8, n_b = _compute_analog_bparams(s_w, s_x, s_y, b_16, n_sh,
-                        #                                    lut_analog_b)
-                        b_8, n_b = _compute_analog_bparams_v2_old(alpha, b_16,
-                                                                  lut_analog_b)
-                        # target = alpha * b_16
-                        # n_b, b_8 = _integer_approximation_bias(target, sh_b=8, alpha_b=8)
-                        n.meta['b_8'] = b_8
-                        n.meta['n_b'] = n_b
-                    elif m.wbits == [8]:
-                        # alpha to be removed
-                        # n_sh_old, alpha_old = _compute_digital_wparams_old(s_w, s_x, s_y,
-                        #                                                    lut_digital_w)
-                        target = s_w * s_x / s_y
-                        n_sh, alpha = _integer_approximation(target, sh_b=32, alpha_b=8)
-                        n.meta['n_sh'] = n_sh
-                        n.meta['alpha'] = alpha  # to be removed
-                    else:
-                        raise ValueError('2 and 8 are only supported wbits')
+                    alpha, n_sh = dict(), dict()
+                    b_8, n_b = dict(), dict()
+                    for wbit in m.wbits:
+                        if wbit == 2:
+                            max_act = modules.get(n.next.target).max_val
+                            alpha[wbit], n_sh[wbit] = \
+                                _compute_analog_wparams_old(s_w[wbit], s_x[7], s_y[7], max_act,
+                                                            lut_analog_w)
+                            # target = s_w * s_x / s_y
+                            # n_sh, alpha = _integer_approximation(target, sh_b=16, alpha_b=8)
+                            # b_8, n_b = _compute_analog_bparams(s_w, s_x, s_y, b_16, n_sh,
+                            #                                    lut_analog_b)
+                            b_8[wbit], n_b[wbit] = \
+                                _compute_analog_bparams_v2_old(alpha[wbit], b_16[wbit],
+                                                               lut_analog_b)
+                            # target = alpha * b_16
+                            # n_b, b_8 = _integer_approximation_bias(target, sh_b=8, alpha_b=8)
+                        elif wbit == 8:
+                            # alpha to be removed
+                            # n_sh_old, alpha_old = _compute_digital_wparams_old(s_w, s_x, s_y,
+                            #                                                    lut_digital_w)
+                            # TODO: find better way than hard-coding 7 for act
+                            target = s_w[wbit] * s_x[7] / s_y[7]
+                            n_sh[wbit], alpha[wbit] = _integer_approximation(target,
+                                                                             sh_b=32, alpha_b=8)
+                        else:
+                            raise ValueError('2 and 8 are only supported wbits')
+                    n.meta['alpha'] = alpha
+                    n.meta['n_sh'] = n_sh
+                    n.meta['b_8'] = b_8
+                    n.meta['n_b'] = n_b
                 s_y = s_x  # propagate s_x backward
 
     # Forward - Transform graph

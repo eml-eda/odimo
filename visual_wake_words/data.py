@@ -1,6 +1,9 @@
 from typing import Tuple
 import os
 import glob
+import random
+
+import numpy as np
 import torch
 import torchvision.transforms as transforms
 import requests
@@ -48,7 +51,8 @@ def get_data(data_dir=None,
              url='https://www.silabs.com/public/files/github/machine_learning/benchmarks/datasets/',
              ds_name='vw_coco2014_96.tar.gz',
              val_split=0.2,
-             test_split=0.1
+             test_split=0.1,
+             seed=None
              ) -> Tuple[Dataset, ...]:
     if data_dir is None:
         data_dir = os.path.join(os.getcwd(), 'vww_data')
@@ -75,43 +79,74 @@ def get_data(data_dir=None,
     ds_val_orig = Coco([data_dir + ds_person_name + '*val*',
                         data_dir + ds_non_person_name + '*val*'])
 
+    # Generator
+    generator = torch.Generator()
+    if seed is not None:
+        # same seed used in torch doc, they suggest using a large num with
+        # balance of 0s and 1s
+        generator.manual_seed(seed)
+
     # TinyML doesnt' use the original validation split but it merges all data
     # and then it takes random 10% as test set.
     ds_train_val = ConcatDataset([ds_train_orig, ds_val_orig])
 
     train_val_len = len(ds_train_val) - int(test_split * len(ds_train_val))
     test_len = int(len(ds_train_val) * test_split)
-    ds_train_val, ds_test = random_split(ds_train_val, [train_val_len, test_len])
+    ds_train_val, ds_test = random_split(ds_train_val, [train_val_len, test_len],
+                                         generator=generator)
 
     # We take another 20% as validation split
     train_len = len(ds_train_val) - int(val_split * len(ds_train_val))
     val_len = int(val_split * len(ds_train_val))
-    ds_train, ds_val = random_split(ds_train_val, [train_len, val_len])
+    ds_train, ds_val = random_split(ds_train_val, [train_len, val_len],
+                                    generator=generator)
 
     return ds_train, ds_val, ds_test
 
 
 def build_dataloaders(datasets: Tuple[Dataset, ...],
                       batch_size=32,
-                      num_workers=2
+                      num_workers=2,
+                      seed=None
                       ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     train_set, val_set, test_set = datasets
+    # Generator
+    generator = torch.Generator()
+    if seed is not None:
+        # same seed used in torch doc, they suggest using a large num with
+        # balance of 0s and 1s
+        generator.manual_seed(seed)
+        worker_init_fn = seed_worker
+    else:
+        worker_init_fn = None
     train_loader = DataLoader(
         train_set,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
+        worker_init_fn=worker_init_fn,
+        generator=generator
     )
     val_loader = DataLoader(
         val_set,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
+        worker_init_fn=worker_init_fn,
+        generator=generator
     )
     test_loader = DataLoader(
         test_set,
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
+        worker_init_fn=worker_init_fn,
+        generator=generator
     )
     return train_loader, val_loader, test_loader
+
+
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)

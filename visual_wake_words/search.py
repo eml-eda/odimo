@@ -215,10 +215,12 @@ def main_worker(gpu, ngpus_per_node, args):
 
     data_dir = args.data.parent.parent.parent / 'data'
     data = get_data(data_dir=data_dir,
-                    val_split=args.val_split)
+                    val_split=args.val_split,
+                    seed=args.seed)
     train_loader, val_loader, test_loader = build_dataloaders(data,
                                                               batch_size=args.batch_size,
-                                                              num_workers=args.workers)
+                                                              num_workers=args.workers,
+                                                              seed=args.seed)
 
     # create model
     print("=> creating model '{}'".format(args.arch))
