@@ -52,7 +52,7 @@ else
     # pretrained_model="warmup_gold.pth.tar"
     python3 main.py ${path}/${arch}/model_${strength}/${timestamp} -a quant${arch} \
         --val-split 0.1 \
-        --epochs 50 --step-epoch 10 -b 32 --patience 10 \
+        --epochs 100 --step-epoch 10 -b 32 --patience 20 \
         --lr 0.001 --wd 1e-4 --lrq 1e-5 \
         --seed 42 --gpu 0 --workers 4 \
         --ac ${pretrained_model} | tee ${path}/${arch}/model_${strength}/${timestamp}/log_fromscratch_${strength}.txt
