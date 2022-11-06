@@ -354,6 +354,67 @@ class FQConvWeightQuantization(nn.Module):
             scale_param={self.scale_param})'
 
 
+class QuantAdd(nn.Module):
+
+    def __init__(self, abits, clip_val=None):
+        super().__init__()
+        # Quantizer activations
+        self.abits = abits
+
+        self.mix_activ = QuantPaCTActiv(abits)
+        if clip_val is not None:
+            self.mix_activ.mix_activ[0].clip_val = clip_val
+
+    def forward(self, x, y):
+        q_x, _ = self.mix_activ(x)
+        q_y, _ = self.mix_activ(y)
+        out = q_x + q_y
+        return out
+
+    @staticmethod
+    def autoconvert(n: fx.Node, mod: fx.GraphModule, mode: IntegerizationMode):
+        """Replaces a fx.Node corresponding to a QuantAvgPool2d,
+        with a (Fake)IntAvgPool2d layer within a fx.GraphModule
+
+        :param n: the node to be rewritten, corresponds to a
+        QuantAvgPool2d layer
+        :type n: fx.Node
+        :param mod: the parent module, where the new node has to be inserted
+        :type mod: fx.GraphModule
+        :param mode: integerization mode. Use `IntegerizationMode.Int` or
+        `IntegerizationMode.FakeInt`
+        :type mode: IntegerizationMode
+        """
+        raise NotImplementedError
+        submodule = mod.get_submodule(str(n.target))
+        if type(submodule) != QuantAvgPool2d:
+            raise TypeError(f"Trying to export a layer of type{type(submodule)}")
+        pool = submodule.pool
+        if mode is IntegerizationMode.FakeInt:
+            new_submodule = im.FakeIntAvgPool2d(
+                n.meta, submodule.abits,
+                kernel_size=pool.kernel_size,
+                stride=pool.stride,
+                padding=pool.padding,
+                ceil_mode=pool.ceil_mode,
+                count_include_pad=pool.count_include_pad,
+                divisor_override=pool.divisor_override
+            )
+        elif mode is IntegerizationMode.Int:
+            new_submodule = im.IntAvgPool2d(
+                n.meta,
+                kernel_size=pool.kernel_size,
+                stride=pool.stride,
+                padding=pool.padding,
+                ceil_mode=pool.ceil_mode,
+                count_include_pad=pool.count_include_pad,
+                divisor_override=pool.divisor_override
+            )
+
+        mod.add_submodule(str(n.target), new_submodule)
+        return
+
+
 class QuantAvgPool2d(nn.Module):
 
     def __init__(self, abits, kernel_size, **kwargs):

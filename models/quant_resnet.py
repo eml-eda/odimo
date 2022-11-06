@@ -88,6 +88,7 @@ class Backbone18(nn.Module):
 # MR
 class Backbone20(nn.Module):
     def __init__(self, conv_func, input_size, bn, abits, wbits, **kwargs):
+        self.fp = conv_func is qm.FpConv2d
         super().__init__()
         self.bb_1_0 = BasicBlock(conv_func, 16, 16, wbits[:2], abits[:2], stride=1,
                                  bn=bn, **kwargs)
@@ -107,10 +108,14 @@ class Backbone20(nn.Module):
                                  bn=bn, **kwargs)
         self.bb_3_2 = BasicBlock(conv_func, 64, 64, wbits[18:20], abits[18:20], stride=1,
                                  bn=bn, **kwargs)
-        self.pool = nn.AvgPool2d(kernel_size=8)
+        if not self.fp:
+            # If not fp we use quantized pooling
+            self.pool = qm.QuantAvgPool2d(abits[0], 8)
+        else:
+            self.pool = nn.AvgPool2d(8)
 
-    def forward(self, x):
-        x = self.bb_1_0(x)
+    def forward(self, x_inp):
+        x = self.bb_1_0(x_inp)
         x = self.bb_1_1(x)
         x = self.bb_1_2(x)
         x = self.bb_2_0(x)
@@ -118,9 +123,11 @@ class Backbone20(nn.Module):
         x = self.bb_2_2(x)
         x = self.bb_3_0(x)
         x = self.bb_3_1(x)
-        x = self.bb_3_2(x)
-        x = self.pool(F.relu(x))
-        return x
+        out = self.bb_3_2(x)
+        if self.fp:
+            out = F.relu(out)
+        out = self.pool(out)
+        return out
 
 
 # MR
@@ -164,11 +171,24 @@ class BasicBlock(nn.Module):
                 groups=1, stride=stride, bias=self.use_bias, **kwargs)
             if bn:
                 self.bn_ds = nn.BatchNorm2d(planes)
+            if not self.fp:
+                # Couple input clip_val
+                inp_clip_val = self.conv1.mix_activ.mix_activ[0].clip_val
+                self.downsample.mix_activ.mix_activ[0].clip_val = inp_clip_val
+
+                # Quantized Sum node
+                self.qadd = qm.QuantAdd(archas[0])
         else:
             self.downsample = None
             if not self.fp:
                 # If not fp and no downsample op we need to quantize the residual branch
-                self.q = qm.QuantPaCTActiv(archas[0])
+                self.inp_q = qm.QuantPaCTActiv(archas[0])
+                # Couple input clip_val
+                inp_clip_val = self.conv1.mix_activ.mix_activ[0].clip_val
+                self.inp_q.mix_activ[0].clip_val = inp_clip_val
+
+                # Quantized Sum node
+                self.qadd = qm.QuantAdd(archas[0], clip_val=inp_clip_val)
 
     def forward(self, x):
         if self.downsample is not None:
@@ -178,7 +198,7 @@ class BasicBlock(nn.Module):
                 residual = F.relu(x)
             else:
                 # Here I need to quantize
-                residual, _ = self.q(x)
+                residual, _ = self.inp_q(x)
 
         out = self.conv1(x)
         if self.bn:
@@ -192,7 +212,10 @@ class BasicBlock(nn.Module):
             if self.bn:
                 residual = self.bn_ds(residual)
 
-        out += residual
+        if self.fp:
+            out += residual
+        else:
+            out = self.qadd(out, residual)
 
         return out
 
@@ -220,11 +243,13 @@ class ResNet18(nn.Module):
         if std_head:
             self.conv1 = conv_func(3, 64, abits=archas[0], wbits=archws[0],
                                    kernel_size=7, stride=2, bias=self.use_bias, padding=3,
-                                   groups=1, first_layer=True, **kwargs)
+                                   groups=1, first_layer=True,
+                                   max_inp_val=1.0, **kwargs)
         else:
             self.conv1 = conv_func(3, 64, abits=archas[0], wbits=archws[0],
                                    kernel_size=3, stride=1, bias=self.use_bias, padding=1,
-                                   groups=1, first_layer=False, **kwargs)
+                                   groups=1, first_layer=False,
+                                   max_inp_val=1.0, **kwargs)
         if bn:
             self.bn1 = nn.BatchNorm2d(64)
         self.backbone = Backbone18(
@@ -259,6 +284,17 @@ class ResNet18(nn.Module):
         x = self.fc(x)[:, :, 0, 0] if self.qtz_fc else self.fc(x)
 
         return x
+
+    def harden_weights(self, dequantize=False):
+        for _, module in self.named_modules():
+            if isinstance(module, self.conv_func):
+                module.harden_weights(dequantize=dequantize)
+
+    def store_hardened_weights(self):
+        with torch.no_grad():
+            for _, module in self.named_modules():
+                if isinstance(module, self.conv_func):
+                    module.store_hardened_weights()
 
     def fetch_arch_info(self):
         sum_cycles, sum_bita, sum_bitw = 0, 0, 0
@@ -323,7 +359,8 @@ class ResNet20(nn.Module):
         # Model
         self.conv1 = conv_func(3, 16, abits=archas[0], wbits=archws[0],
                                kernel_size=3, stride=1, bias=self.use_bias, padding=1,
-                               groups=1, first_layer=False, **kwargs)
+                               groups=1, first_layer=False,
+                               max_inp_val=1.0, **kwargs)
         if bn:
             self.bn1 = nn.BatchNorm2d(16)
         self.backbone = Backbone20(
@@ -332,8 +369,9 @@ class ResNet20(nn.Module):
         # Initialize weights
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
+                # n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                # m.weight.data.normal_(0, math.sqrt(2. / n))
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
             elif isinstance(m, nn.BatchNorm2d):
                 if m.weight is not None:
                     m.weight.data.fill_(1)
@@ -356,6 +394,17 @@ class ResNet20(nn.Module):
         x = self.fc(x)[:, :, 0, 0] if self.qtz_fc else self.fc(x)
 
         return x
+
+    def harden_weights(self, dequantize=False):
+        for _, module in self.named_modules():
+            if isinstance(module, self.conv_func):
+                module.harden_weights(dequantize=dequantize)
+
+    def store_hardened_weights(self):
+        with torch.no_grad():
+            for _, module in self.named_modules():
+                if isinstance(module, self.conv_func):
+                    module.store_hardened_weights()
 
     def fetch_arch_info(self):
         sum_cycles, sum_bita, sum_bitw = 0, 0, 0

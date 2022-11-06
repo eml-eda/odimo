@@ -63,7 +63,7 @@ else
     #pretrained_model="warmup_5bit.pth.tar"
     pretrained_model="warmup20_fp.pth.tar"
     python3 main_r20.py ${path}/${arch}/model_${strength}/${timestamp} -a quant${arch} \
-        -d cifar10 --epochs 200 --step-epoch 50 -b 128 --patience 500 \
+        -d cifar10 --epochs 200 --step-epoch 50 -b 128 --patience 50 \
         --lr 0.001 --wd 1e-4 \
         --seed 42 --gpu 0 \
         --ac ${pretrained_model} | tee ${path}/${arch}/model_${strength}/${timestamp}/log_fromscratch_${strength}.txt
