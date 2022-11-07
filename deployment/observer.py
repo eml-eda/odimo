@@ -75,6 +75,8 @@ class ObserverTracer(fx.Tracer):
     ) -> bool:
         if isinstance(m, self.target_layers):
             return True
+        elif isinstance(m, qm.QuantPaCTActiv):
+            return True
         else:
             return m.__module__.startswith('torch.nn') and \
                 not isinstance(m, torch.nn.Sequential)
@@ -109,6 +111,8 @@ def insert_observers(
         if n.target in modules.keys():
             if isinstance(modules[n.target], target_layers):
                 if isinstance(modules[n.target], qm.QuantAvgPool2d):
+                    continue  # TODO: dirty asf to be fixed!!!!
+                if isinstance(modules[n.target], qm.QuantAdd):
                     continue  # TODO: dirty asf to be fixed!!!!
                 new_obs_name = f'{n.target}_observer'
                 new_obs = observer()

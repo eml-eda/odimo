@@ -128,7 +128,7 @@ def _integer_approximation(target, sh_b, alpha_b=0):
                 min_sh, min_alpha = sh, alpha
         sh_list.append(min_sh)
         alpha_list.append(min_alpha)
-        # print(f'Approx Error: {(100 * min_diff / target[idx]).item()}%')
+        print(f'Approx Error: {(100 * min_diff / target[idx]).item()}%')
     if len(sh_list) == 1:
         return sh_list[0], alpha_list[0]
     else:
@@ -225,6 +225,8 @@ class QuantizationTracer(fx.Tracer):
             return True
         elif isinstance(m, obs.ObserverBase):
             return True
+        elif isinstance(m, qm.QuantPaCTActiv):
+            return True
         else:
             return m.__module__.startswith('torch.nn') and \
                 not isinstance(m, torch.nn.Sequential)
@@ -303,6 +305,17 @@ def build_qgraph(
                         s_x[q_a.num_bits] = q_a.clip_val / (2**q_a.num_bits - 1)
                     n.meta['s_x'] = s_x[7]
                     n.meta['s_y'] = s_y[7]
+                elif isinstance(m, qm.QuantAdd):
+                    s_x = dict()
+                    for q_a in m.mix_activ.mix_activ:
+                        s_x[q_a.num_bits] = q_a.clip_val / (2**q_a.num_bits - 1)
+                    n.meta['s_x'] = s_x[7]
+
+                    target = s_x[7] / s_y[7]
+                    n_sh, alpha = _integer_approximation(target,
+                                                         sh_b=32, alpha_b=0)
+                    n.meta['alpha'] = alpha
+                    n.meta['n_sh'] = n_sh
                 else:
                     s_x, s_w, b_16 = _extract_qinfo(m)
                     n.meta['s_x'] = s_x
@@ -332,20 +345,21 @@ def build_qgraph(
                             # TODO: find better way than hard-coding 7 for act
                             target = s_w[wbit] * s_x[7] / s_y[7]
                             n_sh[wbit], alpha[wbit] = _integer_approximation(target,
-                                                                             sh_b=32, alpha_b=8)
+                                                                             sh_b=32, alpha_b=0)
                         else:
                             raise ValueError('2 and 8 are only supported wbits')
                     n.meta['alpha'] = alpha
                     n.meta['n_sh'] = n_sh
                     n.meta['b_8'] = b_8
                     n.meta['n_b'] = n_b
-                s_y = s_x  # propagate s_x backward
+                if 'downsample' not in n.target:  # TODO: dirty, fix
+                    s_y = s_x  # propagate s_x backward
 
     # Forward - Transform graph
     first_layer = True
     for n in mod.graph.nodes:
         m = modules.get(n.target)
-        if isinstance(m, target_layers):
+        if isinstance(m, target_layers+(qm.QuantPaCTActiv,)):
             with torch.no_grad():
                 # Knowing which one is the first layer is needed for autoconvert
                 if first_layer:
@@ -356,30 +370,58 @@ def build_qgraph(
 
                 if mode is IntegerizationMode.FakeInt:
                     if n.meta['first']:
-                        s_y_fakeint = n.meta['s_x']
+                        s_y_fakeint = n.meta['s_x'][7]
                     n.meta['s_x_fakeint'] = s_y_fakeint
                     # Compute new s_y_fakeint
                     if isinstance(m, qm.QuantAvgPool2d):
                         s_y_fakeint = n.meta['s_x']
+                    elif isinstance(m, qm.QuantAdd):
+                        s_y_fakeint = 2**n.meta['n_sh'] * n.meta['s_x_fakeint'] \
+                            / n.meta['alpha']  # 's_x_fakeint' or 's_x' ??
+                    elif isinstance(m, qm.QuantPaCTActiv):
+                        continue
                     else:
+                        p = m.wbits[0]
                         if m.wbits == [2]:
-                            s_y_fakeint = 2**n.meta['n_sh'] * n.meta['s_w'] * \
-                                n.meta['s_x'] / n.meta['alpha']
-                            n.meta['bias'] = 2**n.meta['n_b'] * n.meta['b_8'] / \
-                                n.meta['alpha']
+                            if 'downsample' not in n.target:  # TODO: dirty, fix
+                                s_y_fakeint = 2**n.meta['n_sh'][p] * n.meta['s_w'][p] * \
+                                    n.meta['s_x'][p] / n.meta['alpha'][p]
+                            n.meta['bias'] = 2**n.meta['n_b'][p] * n.meta['b_8'][p] / \
+                                n.meta['alpha'][p]
                         elif m.wbits == [8]:
-                            s_y_fakeint = 2**n.meta['n_sh'] * n.meta['s_w'] * \
-                                n.meta['s_x_fakeint'] / n.meta['alpha']  # 's_x_fakeint' or 's_x' ??
+                            if 'downsample' not in n.target:  # TODO: dirty, fix
+                                s_y_fakeint = 2**n.meta['n_sh'][p] * \
+                                    n.meta['s_w'][p] * \
+                                    n.meta['s_x_fakeint'] / \
+                                    n.meta['alpha'][p]  # 's_x_fakeint'or's_x'?
                             if n.meta['b_16'] is not None:
                                 # n.meta['bias'] = 2**n.meta['n_sh'] * n.meta['b_16'] * \
                                 #     n.meta['s_w'] * n.meta['s_x']  # 's_x_fakeint' or 's_x' ??
-                                n.meta['bias'] = n.meta['b_16'] * n.meta['s_w'] \
+                                n.meta['bias'] = n.meta['b_16'][p] * n.meta['s_w'][p] \
                                     * n.meta['s_x_fakeint']  # 's_x_fakeint' or 's_x' ??
                             else:
                                 n.meta['bias'] = None
 
                 m.autoconvert(n, mod, mode)
+        # elif isinstance(m, qm.QuantPaCTActiv):
+        #     # new_submodule = nn.Identity()
+        #     # mod.add_submodule(str(n.target), new_submodule)
+        #     mod.delete_submodule(n.target)
+        #     # _erase_node(n, mod.graph)
+        #     # mod.graph.erase_node(n)
 
+    mod.delete_all_unused_submodules()
     mod.graph.lint()
     mod.recompile()
     return mod
+
+
+def _erase_node(n, graph):
+    users_list = list(n.users)
+    length = len(users_list)
+    if length > 0:
+        while length > 0:
+            _erase_node(users_list[length-1], graph)
+            length -= 1
+    else:
+        graph.erase_node(n)

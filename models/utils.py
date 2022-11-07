@@ -222,6 +222,7 @@ def init_scale_param(model):
                     else:
                         # Init scale param to maximize the quantization range
                         init_scale_param = torch.log(2 * w.abs().max())
+                        # init_scale_param = torch.log2(2 * w.abs().max())
                         # init_scale_param = torch.log(w.abs().max())
                         submodule.scale_param.data = init_scale_param
 

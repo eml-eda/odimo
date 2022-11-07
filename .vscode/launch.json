@@ -153,11 +153,11 @@
                 "mobilenetv1_w2a7_foldbn/model_debug",
                 "-a", "quantmobilenetv1_w2a7_foldbn",
                 "--val-split", "0.1",
-                "--epochs", "50",
+                "--epochs", "100",
                 "--step-epoch", "10",
                 "-b", "32",
-                "--workers", "0",
-                "--patience", "10",
+                "--workers", "4",
+                "--patience", "20",
                 "--lr", "1e-3",
                 "--lrq", "1e-5",
                 "--wd", "1e-4",
@@ -240,6 +240,28 @@
                 "--seed", "42",
                 "--gpu", "0",
                 "--ac", "warmup_fp.pth.tar"
+            ]
+        },
+        {
+            "name": "Python: res20_w8a7_deploy",
+            "type": "python",
+            "request": "launch",
+            "program": "deploy.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/image_classification/cifar10",
+            "args": [
+                "res20_w8a7_foldbn/model_debug",
+                "-d", "cifar10",
+                "-a", "quantres20_w8a7_foldbn",
+                "--ac", "warmup20_fp.pth.tar",
+                "--pretrained-w", "w8a7_pow2.pth.tar",
+                "-b", "128",
+                "--epochs", "15",
+                "--lr", "1e-3",
+                "--workers", "0",
+                "--seed", "42",
+                "--gpu", "0"
             ]
         },
         {

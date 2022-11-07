@@ -59,6 +59,29 @@ class IntPaCTActiv(nn.Module):
         return x_q
 
 
+class IntAdd(nn.Module):
+
+    def __init__(self, int_params):
+        super().__init__()
+        self.alpha = int_params['alpha']
+        self.n_sh = int_params['n_sh']
+
+    def forward(self, act_x, act_y):
+        act_qx = torch.min(  # ReLU127
+                    torch.max(torch.tensor(0.), act_x),
+                    torch.tensor(127.))
+        act_qy = torch.min(  # ReLU127
+                    torch.max(torch.tensor(0.), act_y),
+                    torch.tensor(127.))
+        act_qx = torch.floor(act_qx)
+        act_qy = torch.floor(act_qy)
+
+        out = act_qx + act_qy
+        scale_out = self.alpha * out / 2**self.n_sh
+
+        return scale_out
+
+
 class IntAvgPool2d(nn.Module):
 
     def __init__(self, int_params, **kwargs):
@@ -87,7 +110,8 @@ class IntMultiPrecActivConv2d(nn.Module):
         self.wbits = wbits
         self.first_layer = int_params['first']
 
-        self.mix_activ = IntPaCTActiv(abits, self.act_scale)
+        if self.first_layer:
+            self.mix_activ = IntPaCTActiv(abits, self.act_scale)
         self.mix_weight = IntMultiPrecConv2d(int_params, wbits, **kwargs)
         # self.conv = nn.Conv2d(**kwargs)
 
@@ -158,6 +182,24 @@ class IntMultiPrecConv2d(nn.Module):
         return out
 
 
+class FakeIntAdd(nn.Module):
+
+    def __init__(self, int_params, abits):
+        super().__init__()
+        self.abits = abits
+        self.act_scale = int_params['s_x_fakeint']
+
+        self.mix_activ = IntPaCTActiv(abits, self.act_scale, dequantize=True)
+
+    def forward(self, act_x, act_y):
+        act_qx = self.mix_activ(act_x)
+        act_qy = self.mix_activ(act_y)
+
+        out = act_qx + act_qy
+
+        return out
+
+
 class FakeIntAvgPool2d(nn.Module):
 
     def __init__(self, int_params, abits, **kwargs):
@@ -221,7 +263,7 @@ class FakeIntMultiPrecConv2d(nn.Module):
                     num_bits=bit,
                     train_scale_param=False))
             # s_w = torch.exp(q_w.scale_param) / (2**(q_w.num_bits - 1) - 1)
-            scale_param = torch.log(self.s_w * (2**(bit - 1) - 1))
+            scale_param = torch.log(self.s_w[bit] * (2**(bit - 1) - 1))
             self.mix_weight[idx].scale_param.copy_(scale_param)
 
         self.conv = nn.Conv2d(**kwargs)
@@ -250,3 +292,12 @@ class FakeIntMultiPrecConv2d(nn.Module):
             conv.padding, conv.dilation, conv.groups)
 
         return out
+
+
+class ResidualBranch(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return x, None

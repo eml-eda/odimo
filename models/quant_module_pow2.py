@@ -168,11 +168,14 @@ def size_product(filter_size, in_shape):
 # DJP
 class LearnedClippedLinearQuantizeSTE(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, clip_val, num_bits, dequantize, inplace):
+    def forward(ctx, input, clip_val, num_bits, dequantize, inplace, round_pow2):
         ctx.save_for_backward(input, clip_val)
         if inplace:
             ctx.mark_dirty(input)
         scale_factor = asymmetric_linear_quantization_scale_factor(num_bits, 0, clip_val.data[0])
+        if round_pow2:
+            scale_factor = torch.exp2(torch.floor(torch.log2(scale_factor)))
+            clip_val.data[0] = (2**num_bits - 1) / scale_factor
         output = clamp(input, 0, clip_val.data[0], inplace)
         output = linear_quantize(output, scale_factor, inplace)
         if dequantize:
@@ -181,32 +184,35 @@ class LearnedClippedLinearQuantizeSTE(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        input, clip_val = ctx.saved_tensors
+        x, clip_val = ctx.saved_tensors
         grad_input = grad_output.clone()
-        grad_input.masked_fill_(input.le(0), 0)
-        grad_input.masked_fill_(input.ge(clip_val.data[0]), 0)
+        grad_input.masked_fill_(x.le(0), 0)
+        grad_input.masked_fill_(x.ge(clip_val.data[0]), 0)
 
         grad_alpha = grad_output.clone()
-        grad_alpha.masked_fill_(input.lt(clip_val.data[0]), 0)
-#        grad_alpha[input.lt(clip_val.data[0])] = 0
+        grad_alpha.masked_fill_(x.lt(clip_val.data[0]), 0)
+#        grad_alpha[x.lt(clip_val.data[0])] = 0
         grad_alpha = grad_alpha.sum().expand_as(clip_val)
 
         # Straight-through estimator for the scale factor calculation
-        return grad_input, grad_alpha, None, None, None
+        return grad_input, grad_alpha, None, None, None, None
 
 
 # DJP (w.r.t Manuele's code I changed inplace to false to avoid error)
 class LearnedClippedLinearQuantization(nn.Module):
-    def __init__(self, num_bits, init_act_clip_val=6, dequantize=True, inplace=False):
+    def __init__(self, num_bits, init_act_clip_val=6,
+                 dequantize=True, inplace=False, round_pow2=False):
         super(LearnedClippedLinearQuantization, self).__init__()
         self.num_bits = num_bits
         self.clip_val = nn.Parameter(torch.Tensor([init_act_clip_val]))
         self.dequantize = dequantize
         self.inplace = inplace
+        self.round_pow2 = round_pow2
 
-    def forward(self, input):
+    def forward(self, x):
         input = LearnedClippedLinearQuantizeSTE.apply(
-            input, self.clip_val, self.num_bits, self.dequantize, self.inplace)
+            x, self.clip_val, self.num_bits,
+            self.dequantize, self.inplace, self.round_pow2)
         return input
 
     def __repr__(self):
@@ -279,7 +285,8 @@ class FQActQuantization(nn.Module):
 
 
 class FQConvBiasQuantization(nn.Module):
-    def __init__(self, cout, num_bits, abit, inplace=False, dequantize=True):
+    def __init__(self, cout, num_bits, abit, inplace=False, dequantize=True,
+                 round_pow2=False):
         super().__init__()
         self.cout = cout
         self.num_bits = num_bits
@@ -289,13 +296,19 @@ class FQConvBiasQuantization(nn.Module):
         self.n_s = 1 if num_bits != 2 else cout  # Per-Ch scale factor
         self.inplace = inplace
         self.dequantize = dequantize
+        self.round_pow2 = round_pow2
 
     def forward(self, x, w_scale, act_scale):
         n_w = 2**(self.num_bits - 1) - 1
         n_a = 2**(self.abit) - 1
         n_b = 2**(self.b_prec - 1) - 1
         # Having a positive scale factor is preferable to avoid instabilities
-        scale_param = n_b * (torch.exp(w_scale) / n_w) * (act_scale / n_a)
+        if self.round_pow2:
+            # act_scale_approx = torch.round(torch.log2(act_scale / n_a))
+            # scale_param = n_b * (torch.exp2(w_scale) / n_w) * act_scale_approx
+            scale_param = n_b * (torch.exp2(w_scale) / n_w) * (act_scale / n_a)
+        else:
+            scale_param = n_b * (torch.exp(w_scale) / n_w) * (act_scale / n_a)
         x_scaled = x / scale_param.view(self.n_s)
         # Quantize
         x_q = FQQuantizationSTE.apply(x_scaled, self.b_prec, self.inplace, -1)
@@ -313,7 +326,8 @@ class FQConvBiasQuantization(nn.Module):
 # MR (Ref: https://arxiv.org/abs/1912.09356)
 class FQConvWeightQuantization(nn.Module):
     def __init__(self, cout, k_size, num_bits, init_scale_param=0.,
-                 train_scale_param=False, inplace=False, dequantize=True):
+                 train_scale_param=False, inplace=False, dequantize=True,
+                 round_pow2=False):
         super().__init__()
         self.cout = cout
         self.k_size = k_size
@@ -333,10 +347,14 @@ class FQConvWeightQuantization(nn.Module):
         self.scale_param.data.fill_(init_scale_param)
         self.inplace = inplace
         self.dequantize = dequantize
+        self.round_pow2 = round_pow2
 
     def forward(self, x):
         # Having a positive scale factor is preferable to avoid instabilities
-        exp_scale_param = torch.exp(self.scale_param)
+        if self.round_pow2:
+            exp_scale_param = torch.exp2(self.scale_param)
+        else:
+            exp_scale_param = torch.exp(self.scale_param)
         x_scaled = x / exp_scale_param.view(self.n_s, 1, 1, 1)
         # Quantize
         x_q = FQQuantizationSTE.apply(x_scaled, self.num_bits, self.inplace, -1)
@@ -371,11 +389,11 @@ class QuantAdd(nn.Module):
 
     @staticmethod
     def autoconvert(n: fx.Node, mod: fx.GraphModule, mode: IntegerizationMode):
-        """Replaces a fx.Node corresponding to a QuantAdd,
-        with a (Fake)IntAdd layer within a fx.GraphModule
+        """Replaces a fx.Node corresponding to a QuantAvgPool2d,
+        with a (Fake)IntAvgPool2d layer within a fx.GraphModule
 
         :param n: the node to be rewritten, corresponds to a
-        QuantAd layer
+        QuantAvgPool2d layer
         :type n: fx.Node
         :param mod: the parent module, where the new node has to be inserted
         :type mod: fx.GraphModule
@@ -383,13 +401,31 @@ class QuantAdd(nn.Module):
         `IntegerizationMode.FakeInt`
         :type mode: IntegerizationMode
         """
+        raise NotImplementedError
         submodule = mod.get_submodule(str(n.target))
-        if type(submodule) != QuantAdd:
+        if type(submodule) != QuantAvgPool2d:
             raise TypeError(f"Trying to export a layer of type{type(submodule)}")
+        pool = submodule.pool
         if mode is IntegerizationMode.FakeInt:
-            new_submodule = im.FakeIntAdd(n.meta, submodule.abits)
+            new_submodule = im.FakeIntAvgPool2d(
+                n.meta, submodule.abits,
+                kernel_size=pool.kernel_size,
+                stride=pool.stride,
+                padding=pool.padding,
+                ceil_mode=pool.ceil_mode,
+                count_include_pad=pool.count_include_pad,
+                divisor_override=pool.divisor_override
+            )
         elif mode is IntegerizationMode.Int:
-            new_submodule = im.IntAdd(n.meta)
+            new_submodule = im.IntAvgPool2d(
+                n.meta,
+                kernel_size=pool.kernel_size,
+                stride=pool.stride,
+                padding=pool.padding,
+                ceil_mode=pool.ceil_mode,
+                count_include_pad=pool.count_include_pad,
+                divisor_override=pool.divisor_override
+            )
 
         mod.add_submodule(str(n.target), new_submodule)
         return
@@ -474,8 +510,10 @@ class QuantMultiPrecActivConv2d(nn.Module):
         else:
             self.fc = False
 
+        # max_inp_val = kwargs.pop('max_inp_val', 6.)
         max_inp_val = kwargs.pop('max_inp_val', 6.)
-        self.mix_activ = QuantPaCTActiv(abits, max_inp_val)
+        round_pow2 = kwargs.pop('round_pow2', True)  # TODO: in general should be False
+        self.mix_activ = QuantPaCTActiv(abits, max_inp_val, round_pow2)
         # self.mix_activ = QuantFQActiv(abits)
         if not fc:
             self.mix_weight = QuantMultiPrecConv2d(inplane, outplane, wbits, abits=abits, **kwargs)
@@ -630,7 +668,7 @@ class QuantFQActiv(nn.Module):
 # MR
 class QuantPaCTActiv(nn.Module):
 
-    def __init__(self, bits, max_inp_val=6.):
+    def __init__(self, bits, max_inp_val=6., round_pow2=False):
         super(QuantPaCTActiv, self).__init__()
         if type(bits) == int:
             self.bits = [bits]
@@ -643,7 +681,8 @@ class QuantPaCTActiv(nn.Module):
         for bit in self.bits:
             self.mix_activ.append(
                 LearnedClippedLinearQuantization(num_bits=bit,
-                                                 init_act_clip_val=max_inp_val))
+                                                 init_act_clip_val=max_inp_val,
+                                                 round_pow2=round_pow2))
 
     def forward(self, input):
         outs = list()
@@ -656,29 +695,6 @@ class QuantPaCTActiv(nn.Module):
             act_scale.append(branch.clip_val)
         activ = sum(outs)
         return activ, torch.stack(act_scale)
-
-    @staticmethod
-    def autoconvert(n: fx.Node, mod: fx.GraphModule, mode: IntegerizationMode):
-        """Replaces a fx.Node corresponding to a QuantPactActiv,
-        with a ResidualBranch layer within a fx.GraphModule.
-        This operation is need only to satisfy torch.fx
-
-        :param n: the node to be rewritten, corresponds to a
-        ResidualBranch layer
-        :type n: fx.Node
-        :param mod: the parent module, where the new node has to be inserted
-        :type mod: fx.GraphModule
-        :param mode: integerization mode. Use `IntegerizationMode.Int` or
-        `IntegerizationMode.FakeInt`
-        :type mode: IntegerizationMode
-        """
-        submodule = mod.get_submodule(str(n.target))
-        if type(submodule) != QuantPaCTActiv:
-            raise TypeError(f"Trying to export a layer of type{type(submodule)}")
-        new_submodule = im.ResidualBranch()
-
-        mod.add_submodule(str(n.target), new_submodule)
-        return
 
 
 # MR
@@ -704,17 +720,20 @@ class QuantMultiPrecConv2d(nn.Module):
         self.mix_weight = nn.ModuleList()
         self.mix_bias = nn.ModuleList()
         self.train_scale_param = kwargs.pop('train_scale_param', True)
+        self.round_pow2 = kwargs.pop('round_pow2', True)  # TODO: False
         for bit in self.bits:
             self.mix_weight.append(
                 FQConvWeightQuantization(
                     outplane, k_size,
                     num_bits=bit,
-                    train_scale_param=self.train_scale_param))
+                    train_scale_param=self.train_scale_param,
+                    round_pow2=self.round_pow2))
             self.mix_bias.append(
                 FQConvBiasQuantization(
                     outplane,
                     num_bits=bit,
-                    abit=self.abits))
+                    abit=self.abits,
+                    round_pow2=self.round_pow2))
 
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
 
