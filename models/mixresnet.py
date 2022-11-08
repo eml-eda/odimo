@@ -21,8 +21,8 @@ __all__ = [
 ]
 
 
-def conv3x3(conv_func, hw_model, is_searchable, in_planes, out_planes, bias=False,
-            stride=1, groups=1, fix_qtz=False, **kwargs):
+def conv3x3(conv_func, hw_model, is_searchable, in_planes, out_planes,
+            bias=False, stride=1, groups=1, fix_qtz=False, **kwargs):
     "3x3 convolution with padding"
     if conv_func != nn.Conv2d:
         if not is_searchable:
@@ -64,6 +64,7 @@ def fc(conv_func, hw_model, is_searchable, in_planes, out_planes, stride=1, grou
 # MR
 class Backbone20(nn.Module):
     def __init__(self, conv_func, hw_model, is_searchable, input_size, bn, **kwargs):
+        self.fp = conv_func is qm.FpConv2d
         super().__init__()
         self.bb_1_0 = BasicBlockGumbel(conv_func, hw_model, is_searchable[:2], 16, 16, stride=1,
                                        bn=bn, **kwargs)
@@ -83,7 +84,11 @@ class Backbone20(nn.Module):
                                        bn=bn, **kwargs)
         self.bb_3_2 = BasicBlockGumbel(conv_func, hw_model, is_searchable[18:20], 64, 64, stride=1,
                                        bn=bn, **kwargs)
-        self.pool = nn.AvgPool2d(kernel_size=8)
+        if not self.fp:
+            # If not fp we use quantized pooling
+            self.pool = qm.QuantAvgPool2d(kwargs['abits'], kernel_size=8)
+        else:
+            self.pool = nn.AvgPool2d(kernel_size=8)
 
     def forward(self, x, temp, is_hard):
         x = self.bb_1_0(x, temp, is_hard)
@@ -94,9 +99,11 @@ class Backbone20(nn.Module):
         x = self.bb_2_2(x, temp, is_hard)
         x = self.bb_3_0(x, temp, is_hard)
         x = self.bb_3_1(x, temp, is_hard)
-        x = self.bb_3_2(x, temp, is_hard)
-        x = self.pool(F.relu(x))
-        return x
+        out = self.bb_3_2(x, temp, is_hard)
+        if self.fp:
+            out = F.relu(out)
+        out = self.pool(out)
+        return out
 
 
 # MR
@@ -161,6 +168,7 @@ class BasicBlockGumbel(nn.Module):
                  stride=1, downsample=None, bn=True, **kwargs):
         self.bn = bn
         self.use_bias = not bn
+        self.fp = conv_func is qm.FpConv2d
         super().__init__()
         self.conv1 = conv3x3(conv_func, hw_model, is_searchable[0], inplanes, planes,
                              stride=stride, bias=self.use_bias, **kwargs)
@@ -178,16 +186,34 @@ class BasicBlockGumbel(nn.Module):
                                         **kwargs)
             if bn:
                 self.bn_ds = nn.BatchNorm2d(planes)
+            if not self.fp:
+                # Couple input clip_val
+                inp_clip_val = self.conv1.mix_activ.mix_activ[0].clip_val
+                self.downsample.mix_activ.mix_activ[0].clip_val = inp_clip_val
+
+                # Quantized Sum node
+                self.qadd = qm.QuantAdd(kwargs['abits'])
         else:
             self.downsample = None
-            # If not fp and no downsample op we need to quantize the residual branch
-            self.q = qm.QuantPaCTActiv(kwargs['abits'])
+            if not self.fp:
+                # If not fp and no downsample op we need to quantize the residual branch
+                self.inp_q = qm.QuantPaCTActiv(kwargs['abits'])
+                # Couple input clip_val
+                inp_clip_val = self.conv1.mix_activ.mix_activ[0].clip_val
+                self.inp_q.mix_activ[0].clip_val = inp_clip_val
+
+                # Quantized Sum node
+                self.qadd = qm.QuantAdd(kwargs['abits'], clip_val=inp_clip_val)
 
     def forward(self, x, temp, is_hard):
         if self.downsample is not None:
             residual = x
         else:
-            residual, _ = self.q(x)
+            if self.fp:
+                residual = F.relu(x)
+            else:
+                # Here I need to quantize
+                residual, _ = self.inp_q(x)
 
         out = self.conv1(x, temp, is_hard)
         if self.bn:
@@ -201,7 +227,10 @@ class BasicBlockGumbel(nn.Module):
             if self.bn:
                 residual = self.bn_ds(residual)
 
-        out += residual
+        if self.fp:
+            out += residual
+        else:
+            out = self.qadd(out, residual)
 
         return out
 
@@ -228,25 +257,29 @@ class ResNet20(nn.Module):
         self.gumbel = kwargs.get('gumbel', False)
 
         # Model
-        self.conv1 = conv3x3(conv_func, hw_model, is_searchable[0], 3, 16, stride=1, groups=1,
-                             bias=self.use_bias, **kwargs)
+        self.conv1 = conv3x3(conv_func, hw_model, is_searchable[0], 3, 16,
+                             stride=1, groups=1,
+                             bias=self.use_bias, max_inp_val=1.0, **kwargs)
         if bn:
             self.bn1 = nn.BatchNorm2d(16)
         self.backbone = Backbone20(conv_func, hw_model, is_searchable[1:-1], input_size,
                                    bn, **kwargs)
-        self.fc = fc(conv_func, hw_model, is_searchable[-1], 64, num_classes,
-                     search_fc=self.search_fc, **kwargs)
 
         # Initialize weights
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
+                # n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                # m.weight.data.normal_(0, math.sqrt(2. / n))
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
             elif isinstance(m, nn.BatchNorm2d):
                 if m.weight is not None:
                     m.weight.data.fill_(1)
                 if m.bias is not None:
                     m.bias.data.zero_()
+
+        # Final classifier
+        self.fc = fc(conv_func, hw_model, is_searchable[-1], 64, num_classes,
+                     search_fc=self.search_fc, **kwargs)
 
     def forward(self, x, temp, is_hard):
         x = self.conv1(x, temp, is_hard)

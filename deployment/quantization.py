@@ -345,7 +345,7 @@ def build_qgraph(
                             # TODO: find better way than hard-coding 7 for act
                             target = s_w[wbit] * s_x[7] / s_y[7]
                             n_sh[wbit], alpha[wbit] = _integer_approximation(target,
-                                                                             sh_b=32, alpha_b=0)
+                                                                             sh_b=32, alpha_b=8)
                         else:
                             raise ValueError('2 and 8 are only supported wbits')
                     n.meta['alpha'] = alpha

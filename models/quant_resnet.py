@@ -1890,15 +1890,17 @@ def quantres20_diana_full(arch_cfg_path, **kwargs):
     best_arch, worst_arch = _load_arch_multi_prec(arch_cfg_path)
     archas = [abits for a in best_arch['alpha_activ']]
     archws = [wbits for w_ch in best_arch['alpha_weight']]
-    if len(archws) == 21:
-        # Case of fixed-precision on last fc layer
-        archws.append(8)
-    assert len(archas) == 22  # 10 insead of 8 because conv1 and fc activations are also quantized
-    assert len(archws) == 22  # 10 instead of 8 because conv1 and fc weights are also quantized
+    # if len(archws) == 21:
+    #     # Case of fixed-precision on last fc layer
+    #     archws.append(8)
+    # assert len(archas) == 22  # 10 insead of 8 because conv1 and fc activations are also quantized
+    # assert len(archws) == 22  # 10 instead of 8 because conv1 and fc weights are also quantized
     ##
 
+    kwargs.pop('analog_speedup', 5.)
     model = ResNet20(qm.QuantMultiPrecActivConv2d, hw.diana(),
                      archws, archas, qtz_fc='multi', bn=False, **kwargs)
+    utils.init_scale_param(model)
 
     return _quantres20_diana(arch_cfg_path, model, **kwargs)
 
