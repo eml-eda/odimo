@@ -48,6 +48,7 @@ __all__ = [
 # MR
 class Backbone18(nn.Module):
     def __init__(self, conv_func, input_size, bn, abits, wbits, std_head=True, **kwargs):
+        self.fp = conv_func is qm.FpConv2d
         super().__init__()
         self.std_head = std_head
         if std_head:
@@ -68,7 +69,11 @@ class Backbone18(nn.Module):
                                  bn=bn, **kwargs)
         self.bb_4_1 = BasicBlock(conv_func, 512, 512, wbits[15:17], abits[15:17], stride=1,
                                  bn=bn, **kwargs)
-        self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        if not self.fp:
+            # Use quantized pooling
+            self.avg_pool = qm.QuantAvgPool2d(abits[0], 8)
+        else:
+            self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
 
     def forward(self, x):
         if self.std_head:
@@ -80,9 +85,11 @@ class Backbone18(nn.Module):
         x = self.bb_3_0(x)
         x = self.bb_3_1(x)
         x = self.bb_4_0(x)
-        x = self.bb_4_1(x)
-        x = self.avg_pool(F.relu(x))
-        return x
+        out = self.bb_4_1(x)
+        if self.fp:
+            out = F.relu(out)
+        out = self.avg_pool(out)
+        return out
 
 
 # MR
@@ -317,6 +324,7 @@ class ResNet18(nn.Module):
                     conv_shape = {
                         'ch_in': m.ch_in,
                         'ch_out': ch_out,
+                        'groups': m.mix_weight.conv.groups,
                         'k_x': m.k_x,
                         'k_y': m.k_y,
                         'out_x': m.out_x,
@@ -326,7 +334,10 @@ class ResNet18(nn.Module):
                         cycles_analog = self.hw_model('analog', **conv_shape)
                     else:
                         cycles_digital = self.hw_model('digital', **conv_shape)
-                cycles = max(cycles_analog, cycles_digital)
+                if m.mix_weight.conv.groups == 1:
+                    cycles = max(cycles_analog, cycles_digital)
+                else:
+                    cycles = cycles_digital
 
                 bita = memory_size * abit
                 bitw = m.param_size * wbit
@@ -1945,6 +1956,7 @@ def quantres18_diana_full(arch_cfg_path, **kwargs):
     kwargs.pop('analog_speedup', 5.)
     model = ResNet18(qm.QuantMultiPrecActivConv2d, hw.diana(),
                      archws, archas, qtz_fc='multi', bn=False, **kwargs)
+    utils.init_scale_param(model)
 
     return _quantres18_diana(arch_cfg_path, model, **kwargs)
 

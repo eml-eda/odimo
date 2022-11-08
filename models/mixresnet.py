@@ -126,6 +126,7 @@ class BackboneTiny(nn.Module):
 # MR
 class Backbone18(nn.Module):
     def __init__(self, conv_func, hw_model, is_searchable, input_size, bn, std_head=True, **kwargs):
+        self.fp = conv_func is qm.FpConv2d
         super().__init__()
         self.std_head = std_head
         if std_head:
@@ -146,7 +147,11 @@ class Backbone18(nn.Module):
                                        stride=2, bn=bn, **kwargs)
         self.bb_4_1 = BasicBlockGumbel(conv_func, hw_model, is_searchable[15:17], 512, 512,
                                        stride=1, bn=bn, **kwargs)
-        self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        if not self.fp:
+            # If not fp we use quantized pooling
+            self.avg_pool = qm.QuantAvgPool2d(kwargs['abits'], kernel_size=8)
+        else:
+            self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
 
     def forward(self, x, temp, is_hard):
         if self.std_head:
@@ -158,9 +163,11 @@ class Backbone18(nn.Module):
         x = self.bb_3_0(x, temp, is_hard)
         x = self.bb_3_1(x, temp, is_hard)
         x = self.bb_4_0(x, temp, is_hard)
-        x = self.bb_4_1(x, temp, is_hard)
-        x = self.avg_pool(F.relu(x))
-        return x
+        out = self.bb_4_1(x, temp, is_hard)
+        if self.fp:
+            out = F.relu(out)
+        out = self.avg_pool(out)
+        return out
 
 
 class BasicBlockGumbel(nn.Module):
@@ -363,7 +370,7 @@ class ResNet18(nn.Module):
         if bn:
             self.bn1 = nn.BatchNorm2d(64)
         self.backbone = Backbone18(conv_func, hw_model, is_searchable[1:-1], input_size,
-                                   bn, std_head=std_head, **kwargs)
+                                   bn, std_head=std_head, max_inp_val=1.0, **kwargs)
 
         # Initialize weights
         for m in self.modules():
