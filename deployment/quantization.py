@@ -313,7 +313,7 @@ def build_qgraph(
 
                     target = s_x[7] / s_y[7]
                     n_sh, alpha = _integer_approximation(target,
-                                                         sh_b=32, alpha_b=0)
+                                                         sh_b=32, alpha_b=8)
                     n.meta['alpha'] = alpha
                     n.meta['n_sh'] = n_sh
                 else:

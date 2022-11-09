@@ -342,6 +342,29 @@
             ]
         },
         {
+            "name": "Python: res18_diana_deploy",
+            "type": "python",
+            "request": "launch",
+            "program": "deploy.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/image_classification/tiny-imagenet",
+            "args": [
+                "res18_diana_full/model_debug",
+                "-a", "quantres18_diana_full",
+                "--ac", "disc_net/model_0.0e+0/arch_model_best.pth.tar",
+                "--input-res", "64",
+                "--no-std-head",
+                "--pretrained-w", "disc_net/model_0.0e+0/model_best.pth.tar",
+                "-b", "128",
+                "--epochs", "15",
+                "--lr", "1e-3",
+                "--workers", "0",
+                "--seed", "42",
+                "--gpu", "0"
+            ]
+        },
+        {
             "name": "Python: res18_fp",
             "type": "python",
             "request": "launch",
