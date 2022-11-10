@@ -1,6 +1,7 @@
 __pycache__
 image_classification/cifar10/data
 image_classification/tiny-imagenet/data
+image_classification/tiny-imagenet/deployment
 visual_wake_words/data
 wandb/
 log*

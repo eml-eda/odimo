@@ -33,7 +33,10 @@ def main(arch,
          disc_net=None,
          output_name='output.json'):
 
-    model = _ARCH_FUNC[arch](pretrained)
+    if arch == 'resnet18':
+        model = _ARCH_FUNC[arch](pretrained, std_head=False)
+    else:
+        model = _ARCH_FUNC[arch](pretrained)
     if input_shape == 'default':
         dummy_input = torch.randn(_INP_SHAPE[arch])
     else:
