@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch.distributions import Normal
 from torch.nn.parameter import Parameter
 
-from . import int_module as im
+from models import int_module as im
 from deployment.utils import IntegerizationMode
 
 

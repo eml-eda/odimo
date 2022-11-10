@@ -181,6 +181,20 @@
             ]
         },
         {
+            "name": "Python: summarize_model",
+            "type": "python",
+            "request": "launch",
+            "program": "summarize_model.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/models",
+            "args": [
+                "resnet20",
+                "--pretrained", "../dummy_nets/arch_model_best.pth.tar",
+                "--path", "../dummy_nets/model_best.pth.tar"
+            ]
+        },
+        {
             "name": "Python: res8_diana_naive5",
             "type": "python",
             "request": "launch",
