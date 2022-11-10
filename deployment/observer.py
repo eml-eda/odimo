@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Any, Type
+from typing import Any, Type, Tuple
 
 import torch
 import torch.fx as fx
@@ -64,7 +64,7 @@ class ObserverTracer(fx.Tracer):
     :type target_layers: tuple[Type[nn.Module]
     """
 
-    def __init__(self, target_layers: tuple[Type[nn.Module], ...]):
+    def __init__(self, target_layers: Tuple[Type[nn.Module], ...]):
         super().__init__()
         self.target_layers = target_layers
 
@@ -84,7 +84,7 @@ class ObserverTracer(fx.Tracer):
 
 def insert_observers(
     model: nn.Module,
-    target_layers: tuple[Type[nn.Module], ...],
+    target_layers: Tuple[Type[nn.Module], ...],
     observer: ObserverBase = PerChannelMaxObserver
 ) -> nn.Module:
     """
@@ -128,7 +128,7 @@ def insert_observers(
 
 def remove_observers(
     model: nn.Module,
-    target_layers: tuple[Type[nn.Module], ...],
+    target_layers: Tuple[Type[nn.Module], ...],
     observer: ObserverBase = PerChannelMaxObserver
 ) -> nn.Module:
     """

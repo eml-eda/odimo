@@ -1,4 +1,4 @@
-from typing import Type
+from typing import Type, Tuple
 
 import torch
 import torch.nn as nn
@@ -212,7 +212,7 @@ class QuantizationTracer(fx.Tracer):
     :type target_layers: tuple[Type[nn.Module]
     """
 
-    def __init__(self, target_layers: tuple[Type[nn.Module], ...]):
+    def __init__(self, target_layers: Tuple[Type[nn.Module], ...]):
         super().__init__()
         self.target_layers = target_layers
 
@@ -236,7 +236,7 @@ class QuantizationTracer(fx.Tracer):
 def build_qgraph(
     model: nn.Module,
     output_classes: int,
-    target_layers: tuple[Type[nn.Module], ...],
+    target_layers: Tuple[Type[nn.Module], ...],
     mode: IntegerizationMode
 ) -> nn.Module:
     """
