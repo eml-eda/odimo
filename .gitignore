@@ -1,8 +1,10 @@
 __pycache__
 image_classification/cifar10/data
+image_classification/cifar10/deployment
 image_classification/tiny-imagenet/data
 image_classification/tiny-imagenet/deployment
 visual_wake_words/data
+visual_wake_words/deployment
 wandb/
 log*
 *.pth.tar

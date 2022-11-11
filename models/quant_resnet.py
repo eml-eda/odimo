@@ -692,7 +692,7 @@ def quantres18_fp(arch_cfg_path, pretrained=True, **kwargs):
 
 def quantres18_fp_reduced(arch_cfg_path, **kwargs):
     archas, archws = [[8]] * 21, [[8]] * 21
-    std_head = kwargs.pop('std_head')
+    std_head = kwargs.pop('std_head', False)
     model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
                      archws, archas, qtz_fc='multi', std_head=std_head, **kwargs)
     # Check `arch_cfg_path` existence

@@ -87,10 +87,14 @@ def main(arch,
                 layer_details['k_y'] = conv.kernel_size[1]
                 layer_details['stride'] = list(conv.stride)
                 layer_details['padding'] = list(conv.padding)
-                alpha = m.mix_weight.alpha_weight.detach().cpu().numpy()
-                prec = alpha.argmax(axis=0)
-                ch_d = sum(prec == 0)
-                ch_a = sum(prec == 1)
+                if conv.groups == 1:
+                    alpha = m.mix_weight.alpha_weight.detach().cpu().numpy()
+                    prec = alpha.argmax(axis=0)
+                    ch_d = sum(prec == 0)
+                    ch_a = sum(prec == 1)
+                else:  # depthwise
+                    ch_d = conv.out_channels
+                    ch_a = 0
                 layer_details['digital_ch'] = int(ch_d)
                 layer_details['analog_ch'] = int(ch_a)
             elif isinstance(m, qm.QuantAvgPool2d):

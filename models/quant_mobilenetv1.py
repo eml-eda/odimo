@@ -513,7 +513,7 @@ def quantmobilenetv1_diana_reduced(arch_cfg_path, **kwargs):
 
 
 def _quantmobilenetv1_diana(arch_cfg_path, model, **kwargs):
-    if kwargs['fine_tune']:
+    if kwargs.get('fine_tune', True):
         # Load all weights
         state_dict = torch.load(arch_cfg_path)['state_dict']
         model.load_state_dict(state_dict)
