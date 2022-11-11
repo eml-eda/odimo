@@ -71,11 +71,15 @@ def main(arch,
         if isinstance(m, target_layers):
             layer_name = n.target
             layer_details = dict()
-            layer_details['out_shape'] = list(n.meta['tensor_meta'].shape)[2:]
             # Find previous layer(s)
             prev_layer = list()
             for inp in n.all_input_nodes:
                 prev_layer += _prev_layer(inp, modules, target_layers)
+            if prev_layer == [None]:  # Input Layer
+                layer_details['in_shape'] = list(dummy_input.shape)[2:]
+            else:
+                layer_details['in_shape'] = arch_details[prev_layer[0]]['out_shape']
+            layer_details['out_shape'] = list(n.meta['tensor_meta'].shape)[2:]
             layer_details['prev_layer'] = prev_layer
             if isinstance(m, qm.QuantMultiPrecActivConv2d):
                 layer_details['op'] = 'CONV'
@@ -89,9 +93,14 @@ def main(arch,
                 layer_details['padding'] = list(conv.padding)
                 if conv.groups == 1:
                     alpha = m.mix_weight.alpha_weight.detach().cpu().numpy()
-                    prec = alpha.argmax(axis=0)
-                    ch_d = sum(prec == 0)
-                    ch_a = sum(prec == 1)
+                    if alpha.shape[0] > 1:
+                        prec = alpha.argmax(axis=0)
+                        ch_d = sum(prec == 0)
+                        ch_a = sum(prec == 1)
+                    else:  # shape == 1
+                        prec = m.mix_weight.bits[0]
+                        ch_d = conv.out_channels if prec == 8 else 0
+                        ch_a = conv.out_channels if prec == 2 else 0
                 else:  # depthwise
                     ch_d = conv.out_channels
                     ch_a = 0
