@@ -19,6 +19,7 @@ __all__ = [
     'quantmobilenetv1_w2a7_true_foldbn',
     'quantmobilenetv1_minlat_foldbn',
     'quantmobilenetv1_minlat_max8_foldbn',
+    'quantmobilenetv1_diana_naive5', 'quantmobilenetv1_diana_naive10',
     'quantmobilenetv1_diana_full',
     'quantmobilenetv1_diana_reduced',
     ]
@@ -279,9 +280,10 @@ def quantmobilenetv1_w8a7_foldbn(arch_cfg_path, **kwargs):
         raise FileNotFoundError
 
     archas, archws = [[7]] * 28, [[8]] * 28
-    fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=5.),
+    s_up = kwargs.pop('analog_speedup', 5.)
+    fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=s_up),
                            archws, archas, qtz_fc='multi', **kwargs)
-    q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+    q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                           archws, archas, qtz_fc='multi', bn=False, **kwargs)
 
     # Load pretrained fp state_dict
@@ -316,9 +318,10 @@ def quantmobilenetv1_w2a7_foldbn(arch_cfg_path, **kwargs):
     # Set first and last layer weights precision to 8bit
     archws[0] = [8]
     archws[-1] = [8]
-    fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=5.),
+    s_up = kwargs.pop('analog_speedup', 5.)
+    fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=s_up),
                            archws, archas, qtz_fc='multi', **kwargs)
-    q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+    q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                           archws, archas, qtz_fc='multi', bn=False,
                           **kwargs)
 
@@ -351,9 +354,10 @@ def quantmobilenetv1_w2a7_true_foldbn(arch_cfg_path, **kwargs):
         raise FileNotFoundError
 
     archas, archws = [[7]] * 28, [[2]] * 28
-    fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=5.),
+    s_up = kwargs.pop('analog_speedup', 5.)
+    fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=s_up),
                            archws, archas, qtz_fc='multi', **kwargs)
-    q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=5.),
+    q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                           archws, archas, qtz_fc='multi', bn=False, **kwargs)
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
@@ -455,6 +459,56 @@ def quantmobilenetv1_minlat_max8_foldbn(arch_cfg_path, **kwargs):
     utils.fix_ch_prec(q_model, prec=8, ch=[6, 0, 31, 31])
 
     return q_model
+
+
+def quantmobilenetv1_diana_naive5(arch_cfg_path, **kwargs):
+    wbits, abits = [8, 2], [7]
+
+    # ## This block of code is only necessary to comply with the underlying EdMIPS code ##
+    best_arch, worst_arch = _load_arch_multi_prec(arch_cfg_path)
+    archas = [abits for a in best_arch['alpha_activ']]
+    archws = [wbits for w_ch in best_arch['alpha_weight']]
+    # if len(archws) == 20:
+    #     # Case of fixed-precision on last fc layer
+    #     archws.append(8)
+    # assert len(archas) == 21  # 10 insead of 8 because conv1 and fc activations are also quantized
+    # assert len(archws) == 21  # 10 instead of 8 because conv1 and fc weights are also quantized
+    ##
+
+    archws[0] = [8]
+    archws[-1] = [8]
+
+    kwargs.pop('analog_speedup', 5.)
+    model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana_naive(5.),
+                        archws, archas, qtz_fc='multi', bn=False, **kwargs)
+    utils.init_scale_param(model)
+
+    return _quantmobilenetv1_diana(arch_cfg_path, model, **kwargs)
+
+
+def quantmobilenetv1_diana_naive10(arch_cfg_path, **kwargs):
+    wbits, abits = [8, 2], [7]
+
+    # ## This block of code is only necessary to comply with the underlying EdMIPS code ##
+    best_arch, worst_arch = _load_arch_multi_prec(arch_cfg_path)
+    archas = [abits for a in best_arch['alpha_activ']]
+    archws = [wbits for w_ch in best_arch['alpha_weight']]
+    # if len(archws) == 20:
+    #     # Case of fixed-precision on last fc layer
+    #     archws.append(8)
+    # assert len(archas) == 21  # 10 insead of 8 because conv1 and fc activations are also quantized
+    # assert len(archws) == 21  # 10 instead of 8 because conv1 and fc weights are also quantized
+    ##
+
+    archws[0] = [8]
+    archws[-1] = [8]
+
+    kwargs.pop('analog_speedup', 5.)
+    model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana_naive(10.),
+                        archws, archas, qtz_fc='multi', bn=False, **kwargs)
+    utils.init_scale_param(model)
+
+    return _quantmobilenetv1_diana(arch_cfg_path, model, **kwargs)
 
 
 def quantmobilenetv1_diana_full(arch_cfg_path, **kwargs):

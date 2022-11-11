@@ -12,6 +12,7 @@ from .quant_mobilenetv1 import quantmobilenetv1_fp, quantmobilenetv1_fp_foldbn
 
 # MR
 __all__ = [
+    'mixmobilenetv1_diana_naive5', 'mixmobilenetv1_diana_naive10',
     'mixmobilenetv1_diana_full',
     'mixmobilenetv1_diana_reduced',
 ]
@@ -277,6 +278,22 @@ class MobileNetV1(nn.Module):
                 sum_mixbitw += mixbitw
                 layer_idx += 1
         return best_arch, sum_cycles, sum_bita, sum_bitw, sum_mixcycles, sum_mixbita, sum_mixbitw
+
+
+def mixmobilenetv1_diana_naive5(arch_cfg_path, **kwargs):
+    search_model = MobileNetV1(
+        qm.MultiPrecActivConv2d, hw.diana_naive(5.), [True]*28,
+        search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
+        share_weight=True, **kwargs)
+    return _mixmobilenetv1_diana(arch_cfg_path, search_model)
+
+
+def mixmobilenetv1_diana_naive10(arch_cfg_path, **kwargs):
+    search_model = MobileNetV1(
+        qm.MultiPrecActivConv2d, hw.diana_naive(10.), [True]*28,
+        search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
+        share_weight=True, **kwargs)
+    return _mixmobilenetv1_diana(arch_cfg_path, search_model)
 
 
 def mixmobilenetv1_diana_full(arch_cfg_path, **kwargs):
