@@ -124,11 +124,12 @@ def diana_naive(analog_speedup=5.):
     def diana_model(accelerator, **kwargs):
         ch_in = kwargs['ch_in']
         ch_eff = kwargs['ch_out']
+        groups = kwargs.get('groups', 1)
         k_x = kwargs['k_x']
         k_y = kwargs['k_y']
         out_x = kwargs['out_x']
         out_y = kwargs['out_y']
-        mac = ch_in * ch_eff * k_x * k_y * out_x * out_y
+        mac = ch_in * (ch_eff / groups) * k_x * k_y * out_x * out_y
         DIANA_NAIVE['analog'] = float(analog_speedup)  # Update SpeedUp
         if accelerator in DIANA_NAIVE.keys():
             return mac / DIANA_NAIVE[accelerator]

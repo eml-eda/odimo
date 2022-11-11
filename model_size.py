@@ -33,8 +33,8 @@ if args.pretrained_model is not None:
                 std_head=args.std_head)
         else:
             model = models.__dict__[args.arch](
-                args.pretrained_model, num_classes=args.num_classes,
-                fine_tune=False)
+                args.pretrained_model, analog_speedup=args.analog_speedup,
+                num_classes=args.num_classes, fine_tune=False)
 else:
     model = models.__dict__[args.arch](
         '', num_classes=args.num_classes)

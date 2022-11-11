@@ -16,6 +16,7 @@ from .quant_resnet import quantres8_fp_foldbn, quantres20_fp_foldbn, quantres20_
 __all__ = [
     'mixres8_diana_naive5', 'mixres8_diana_naive10', 'mixres8_diana_naive100',
     'mixres8_diana',
+    'mixres20_diana_naive5', 'mixres20_diana_naive10',
     'mixres20_diana_reduced', 'mixres20_diana_full',
     'mixres18_diana_reduced', 'mixres18_diana_full',
 ]
@@ -601,6 +602,24 @@ def mixres8_diana(arch_cfg_path, **kwargs):
     utils.init_scale_param(search_model)
 
     return search_model
+
+
+def mixres20_diana_naive5(arch_cfg_path, **kwargs):
+    # NB: 2 bits is equivalent for ternary weights!!
+    search_model = ResNet20(
+        qm.MultiPrecActivConv2d, hw.diana_naive(5.), [True]*22,
+        search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
+        share_weight=True, **kwargs)
+    return _mixres20_diana(arch_cfg_path, search_model)
+
+
+def mixres20_diana_naive10(arch_cfg_path, **kwargs):
+    # NB: 2 bits is equivalent for ternary weights!!
+    search_model = ResNet20(
+        qm.MultiPrecActivConv2d, hw.diana_naive(10.), [True]*22,
+        search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
+        share_weight=True, **kwargs)
+    return _mixres20_diana(arch_cfg_path, search_model)
 
 
 def mixres20_diana_full(arch_cfg_path, **kwargs):
