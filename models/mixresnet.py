@@ -649,7 +649,7 @@ def mixres18_diana_naive5(arch_cfg_path, **kwargs):
         qm.MultiPrecActivConv2d, hw.diana_naive(5.), [True]*22,
         search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
         share_weight=True, std_head=std_head, **kwargs)
-    return _mixres18_diana(arch_cfg_path, search_model)
+    return _mixres18_diana(arch_cfg_path, search_model, std_head)
 
 
 def mixres18_diana_naive10(arch_cfg_path, **kwargs):
@@ -659,7 +659,7 @@ def mixres18_diana_naive10(arch_cfg_path, **kwargs):
         qm.MultiPrecActivConv2d, hw.diana_naive(10.), [True]*22,
         search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
         share_weight=True, std_head=std_head, **kwargs)
-    return _mixres18_diana(arch_cfg_path, search_model)
+    return _mixres18_diana(arch_cfg_path, search_model, std_head)
 
 
 def mixres18_diana_full(arch_cfg_path, **kwargs):
