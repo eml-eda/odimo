@@ -37,11 +37,12 @@ __all__ = [
     'quantres20_minlat_foldbn', 'quantres20_minlat_max8_foldbn',
     'quantres8_diana',
     'quantres8_diana_naive5', 'quantres8_diana_naive10', 'quantres8_diana_naive100',
-    'quantres20_diana_naive5', 'quantres20_diana_naive5',
+    'quantres20_diana_naive5', 'quantres20_diana_naive10',
     'quantres20_diana_reduced', 'quantres20_diana_full',
     'quantres18_fp', 'quantres18_fp_reduced', 'quantres18_fp_prtrext', 'quantres18_fp_foldbn',
     'quantres18_w8a7_foldbn', 'quantres18_w2a7_foldbn', 'quantres18_w2a7_true_foldbn',
     'quantres18_minlat64_foldbn', 'quantres18_minlat64_max8_foldbn',
+    'quantres18_diana_naive5', 'quantres18_diana_naive10',
     'quantres18_diana_reduced', 'quantres18_diana_full',
 ]
 
@@ -1983,6 +1984,50 @@ def quantres20_diana_reduced(arch_cfg_path, **kwargs):
                      archws, archas, qtz_fc='multi', bn=False, **kwargs)
 
     return _quantres20_diana(arch_cfg_path, model, **kwargs)
+
+
+def quantres18_diana_naive5(arch_cfg_path, **kwargs):
+    wbits, abits = [8, 2], [7]
+
+    # ## This block of code is only necessary to comply with the underlying EdMIPS code ##
+    best_arch, worst_arch = _load_arch_multi_prec(arch_cfg_path)
+    archas = [abits for a in best_arch['alpha_activ']]
+    archws = [wbits for w_ch in best_arch['alpha_weight']]
+    # if len(archws) == 21:
+    #     # Case of fixed-precision on last fc layer
+    #     archws.append(8)
+    # assert len(archas) == 22  # 10 insead of 8 because conv1 and fc activations are also quantized
+    # assert len(archws) == 22  # 10 instead of 8 because conv1 and fc weights are also quantized
+    ##
+
+    kwargs.pop('analog_speedup', 5.)
+    model = ResNet18(qm.QuantMultiPrecActivConv2d, hw.diana_naive(5.),
+                     archws, archas, qtz_fc='multi', bn=False, **kwargs)
+    utils.init_scale_param(model)
+
+    return _quantres18_diana(arch_cfg_path, model, **kwargs)
+
+
+def quantres18_diana_naive10(arch_cfg_path, **kwargs):
+    wbits, abits = [8, 2], [7]
+
+    # ## This block of code is only necessary to comply with the underlying EdMIPS code ##
+    best_arch, worst_arch = _load_arch_multi_prec(arch_cfg_path)
+    archas = [abits for a in best_arch['alpha_activ']]
+    archws = [wbits for w_ch in best_arch['alpha_weight']]
+    # if len(archws) == 21:
+    #     # Case of fixed-precision on last fc layer
+    #     archws.append(8)
+    # assert len(archas) == 22  # 10 insead of 8 because conv1 and fc activations are also quantized
+    # assert len(archws) == 22  # 10 instead of 8 because conv1 and fc weights are also quantized
+    ##
+
+    kwargs.pop('analog_speedup', 5.)
+    model = ResNet18(qm.QuantMultiPrecActivConv2d, hw.diana_naive(10.),
+                     archws, archas, qtz_fc='multi', bn=False, **kwargs)
+    utils.init_scale_param(model)
+
+    return _quantres18_diana(arch_cfg_path, model, **kwargs)
 
 
 def quantres18_diana_full(arch_cfg_path, **kwargs):

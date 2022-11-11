@@ -18,6 +18,7 @@ __all__ = [
     'mixres8_diana',
     'mixres20_diana_naive5', 'mixres20_diana_naive10',
     'mixres20_diana_reduced', 'mixres20_diana_full',
+    'mixres18_diana_naive5', 'mixres18_diana_naive10',
     'mixres18_diana_reduced', 'mixres18_diana_full',
 ]
 
@@ -639,6 +640,26 @@ def mixres20_diana_reduced(arch_cfg_path, **kwargs):
         search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
         share_weight=True, **kwargs)
     return _mixres20_diana(arch_cfg_path, search_model)
+
+
+def mixres18_diana_naive5(arch_cfg_path, **kwargs):
+    std_head = kwargs.pop('std_head', True)
+    # NB: 2 bits is equivalent for ternary weights!!
+    search_model = ResNet18(
+        qm.MultiPrecActivConv2d, hw.diana_naive(5.), [True]*22,
+        search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
+        share_weight=True, std_head=std_head, **kwargs)
+    return _mixres18_diana(arch_cfg_path, search_model)
+
+
+def mixres18_diana_naive10(arch_cfg_path, **kwargs):
+    std_head = kwargs.pop('std_head', True)
+    # NB: 2 bits is equivalent for ternary weights!!
+    search_model = ResNet18(
+        qm.MultiPrecActivConv2d, hw.diana_naive(10.), [True]*22,
+        search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
+        share_weight=True, std_head=std_head, **kwargs)
+    return _mixres18_diana(arch_cfg_path, search_model)
 
 
 def mixres18_diana_full(arch_cfg_path, **kwargs):
