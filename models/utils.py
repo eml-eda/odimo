@@ -1,4 +1,5 @@
 import copy
+import math
 
 import numpy as np
 
@@ -138,6 +139,24 @@ def fix_ch_prec(model, prec, ch):
                     else:
                         raise ValueError(f'Type {type(ch)} is not supported')
                     i += 1
+
+
+def fix_ch_prec_naive(model, speedup):
+    i = 0
+    with torch.no_grad():
+        for name, module in model.named_modules():
+            if isinstance(module, qm.QuantMultiPrecConv2d):
+                if module.alpha_weight.shape[0] > 1:
+                    idx = module.bits.index(8)
+                    ch_out = module.conv.out_channels
+                    ch = math.floor(ch_out / speedup) - 1
+                    module.alpha_weight[idx, :ch].fill_(1.)
+                    module.alpha_weight[idx+1, :ch].fill_(0.)
+                    module.alpha_weight[idx, ch:].fill_(0.)
+                    module.alpha_weight[idx+1, ch:].fill_(1.)
+                else:
+                    raise ValueError(f'Type {type(ch)} is not supported')
+                i += 1
 
 
 # http://tinyurl.com/2p9a22kd <- copied from torch.fx experimental (torch v11.0)
