@@ -155,6 +155,7 @@ def fix_ch_prec_naive(model, speedup):
                     module.alpha_weight[idx, ch:].fill_(0.)
                     module.alpha_weight[idx+1, ch:].fill_(1.)
                 else:
+                    continue
                     raise ValueError(f'Type {type(ch)} is not supported')
                 i += 1
 
