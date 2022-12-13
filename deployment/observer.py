@@ -7,7 +7,7 @@ import torch.nn as nn
 
 import deployment.utils as utils
 
-import models.quant_module as qm
+import models.quant_module_pow2 as qm
 
 __all__ = [
     'ObserverBase',
@@ -113,6 +113,8 @@ def insert_observers(
                 if isinstance(modules[n.target], qm.QuantAvgPool2d):
                     continue  # TODO: dirty asf to be fixed!!!!
                 if isinstance(modules[n.target], qm.QuantAdd):
+                    continue  # TODO: dirty asf to be fixed!!!!
+                if isinstance(modules[n.target], qm.QuantPaCTActiv):
                     continue  # TODO: dirty asf to be fixed!!!!
                 new_obs_name = f'{n.target}_observer'
                 new_obs = observer()

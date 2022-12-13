@@ -11,6 +11,7 @@ from torch.nn.utils.fusion import fuse_conv_bn_eval
 
 from models.model_diana import analog_cycles, digital_cycles
 from . import quant_module as qm
+from . import quant_module_pow2 as qm2
 
 
 def _non_zero_frac(w, init_scale_param, cout):
@@ -222,7 +223,10 @@ def fpfold_to_q(state_dict):
 def init_scale_param(model):
     with torch.no_grad():
         for name, module in model.named_modules():
-            if isinstance(module, (qm.QuantMultiPrecConv2d, qm.SharedMultiPrecConv2d)):
+            if isinstance(module,
+                          (qm.QuantMultiPrecConv2d,
+                           qm2.QuantMultiPrecConv2d,
+                           qm.SharedMultiPrecConv2d)):
                 w = module.conv.weight
                 for submodule in module.mix_weight:
                     nb = submodule.num_bits
@@ -241,8 +245,8 @@ def init_scale_param(model):
                             non_zero_frac = _non_zero_frac(w, init_scale_param, cout)
                     else:
                         # Init scale param to maximize the quantization range
-                        init_scale_param = torch.log(2 * w.abs().max())
-                        # init_scale_param = torch.log2(2 * w.abs().max())
+                        # init_scale_param = torch.log(2 * w.abs().max())
+                        init_scale_param = torch.exp2(torch.floor(torch.log2(2 * w.abs().max())))
                         # init_scale_param = torch.log(w.abs().max())
                         submodule.scale_param.data = init_scale_param
 

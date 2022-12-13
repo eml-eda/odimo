@@ -267,13 +267,36 @@
             "args": [
                 "res20_w8a7_foldbn/model_debug",
                 "-d", "cifar10",
-                "-a", "quantres20_w8a7_foldbn",
+                "-a", "quantres20_w8a7_pow2_foldbn",
                 "--ac", "warmup20_fp.pth.tar",
                 "--pretrained-w", "w8a7_pow2.pth.tar",
                 "-b", "128",
                 "--epochs", "15",
                 "--lr", "1e-3",
                 "--workers", "0",
+                "--seed", "42",
+                "--gpu", "0"
+            ]
+        },
+        {
+            "name": "Python: res20_w8a7_pow2",
+            "type": "python",
+            "request": "launch",
+            "program": "main_r20.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}/image_classification/cifar10",
+            "args": [
+                "res20_w8a7_pow2_foldbn/model_debug",
+                "-a", "quantres20_w8a7_pow2_foldbn",
+                "-d", "cifar10",
+                "--ac", "warmup20_fp.pth.tar",
+                "--epochs", "200",
+                "--step-epoch", "50",
+                "-b", "128",
+                "--patience", "100",
+                "--lr", "0.001",
+                "--wd", "1e-4",
                 "--seed", "42",
                 "--gpu", "0"
             ]

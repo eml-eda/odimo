@@ -20,7 +20,7 @@ import torchvision.transforms as transforms
 from deployment.observer import insert_observers, remove_observers
 from deployment.quantization import IntegerizationMode, build_qgraph
 import models
-import models.quant_module as qm
+import models.quant_module_pow2 as qm
 from models.int_module import FakeIntMultiPrecActivConv2d, FakeIntAvgPool2d, FakeIntAdd
 
 model_names = sorted(name for name in models.__dict__
@@ -185,7 +185,8 @@ def main_worker(args):
     obs_model = insert_observers(copy.deepcopy(model),
                                  target_layers=(model.conv_func,
                                                 qm.QuantAvgPool2d,
-                                                qm.QuantAdd))
+                                                qm.QuantAdd,
+                                                qm.QuantPaCTActiv))
     if args.gpu is not None:
         obs_model = obs_model.cuda(args.gpu)
     obs_model.eval()
@@ -237,7 +238,8 @@ def main_worker(args):
         torch.cuda.set_device(args.gpu)
         int_model = int_model.cuda(args.gpu)
 
-    # compare_models(test_loader, model, int_model, args)
+    # compare_models_mb(test_loader, model, int_model, args)
+    # compare_models_res(test_loader, model, int_model, args)
 
     validate(test_loader, int_model, args)
 
@@ -254,7 +256,7 @@ def collect_stats(loader, model, args):
             model(images)
 
 
-def compare_models(loader, fq_model, int_model, args):
+def compare_models_mb(loader, fq_model, int_model, args):
     fq_model.eval()
     int_model.eval()
 
@@ -369,6 +371,186 @@ def compare_models(loader, fq_model, int_model, args):
                 diff_max = torch.abs(int_pool - (fq_pool * 127 / act_scale)).max()
 
                 print(f'pool diff max: {diff_max}')
+
+
+def compare_models_res(loader, fq_model, int_model, args):
+    fq_model.eval()
+    int_model.eval()
+
+    def _act(x):
+        return torch.floor(torch.min(  # ReLU127
+                    torch.max(torch.tensor(0.), x),
+                    torch.tensor(127.))
+            )
+        # return torch.nn.functional.relu(x)
+
+    with torch.no_grad():
+        for i, (images, target) in enumerate(loader):
+            if args.gpu is not None:
+                images = images.cuda(args.gpu, non_blocking=True)
+            target = target.cuda(args.gpu, non_blocking=True)
+
+            # images = 255 * images
+            for image in images:
+                image = image.unsqueeze(0)
+                # label = target[0]
+
+                # fq_out = fq_model(image)
+
+                # int_out = int_model(image)
+
+                # Input Layer
+                fq_act1, act_scale = fq_model.conv1.mix_activ(image)
+                fq_out1 = fq_model.conv1.mix_weight(fq_act1, act_scale)
+                fq_act2, act_scale = fq_model.backbone.bb_1_0.conv1.mix_activ(fq_out1)
+
+                int_act1 = int_model.conv1.mix_activ(image)
+                int_out1 = _act(int_model.conv1.mix_weight(int_act1))
+
+                diff_max = torch.abs(int_out1 - (fq_act2 * 127 / act_scale)).max()
+
+                print(f'Input Layer diff max: {diff_max}')
+
+                # First BB - First Conv
+                fq_out2 = fq_model.backbone.bb_1_0.conv1.mix_weight(fq_act2, act_scale)
+                fq_act3, act_scale = fq_model.backbone.bb_1_0.conv2.mix_activ(fq_out2)
+
+                # int_act2 = int_model.backbone.bb_1.depth.mix_activ(int_out1)
+                int_out2 = _act(int_model.backbone.bb_1_0.conv1.mix_weight(int_out1))
+
+                diff_max = torch.abs(int_out2 - (fq_act3 * 127 / act_scale)).max()
+
+                print(f'First BB First Conv diff max: {diff_max}')
+
+                # First BB - Second Conv and Residual
+                fq_res3, _ = fq_model.backbone.bb_1_0.inp_q(fq_out1)
+                fq_out3 = fq_model.backbone.bb_1_0.conv2.mix_weight(fq_act3, act_scale)
+                fq_act4 = fq_model.backbone.bb_1_0.qadd(fq_out3, fq_res3)
+                fq_act5, act_scale = fq_model.backbone.bb_1_1.conv1.mix_activ(fq_act4)
+
+                # int_act2 = int_model.backbone.bb_1.depth.mix_activ(int_out1)
+                int_out3 = _act(int_model.backbone.bb_1_0.conv2.mix_weight(int_out2))
+                int_res3 = int_out1
+                int_out4 = _act(int_model.backbone.bb_1_0.qadd(int_out3, int_res3))
+
+                diff_max = torch.abs(int_out4 - (fq_act5 * 127 / act_scale)).max()
+
+                print(f'First BB - Second Conv and Res diff max: {diff_max}')
+
+                # bb_1_1
+                fq_out5 = fq_model.backbone.bb_1_1(fq_act4)
+                fq_act6, act_scale = fq_model.backbone.bb_1_2.conv1.mix_activ(fq_out5)
+
+                int_out5 = int_model.backbone.bb_1_1.conv2.mix_weight(_act(
+                    int_model.backbone.bb_1_1.conv1.mix_weight(int_out4)))
+                int_res5 = int_out4
+                int_out6 = _act(int_model.backbone.bb_1_1.qadd(int_out5, int_res5))
+
+                diff_max = torch.abs(int_out6 - (fq_act6 * 127 / act_scale)).max()
+
+                print(f'bb_1_1 diff max: {diff_max}')
+
+                # bb_1_2
+                fq_out6 = fq_model.backbone.bb_1_2(fq_out5)
+                fq_act7, act_scale = fq_model.backbone.bb_2_0.conv1.mix_activ(fq_out6)
+
+                int_out7 = _act(int_model.backbone.bb_1_2.conv2.mix_weight(_act(
+                    int_model.backbone.bb_1_2.conv1.mix_weight(int_out6))))
+                int_res7 = int_out6
+                int_out8 = _act(int_model.backbone.bb_1_2.qadd(int_out7, int_res7))
+
+                diff_max = torch.abs(int_out8 - (fq_act7 * 127 / act_scale)).max()
+
+                print(f'bb_1_2 diff max: {diff_max}')
+
+                # bb_2_0
+                fq_out7 = fq_model.backbone.bb_2_0(fq_out6)
+                fq_act8, act_scale = fq_model.backbone.bb_2_1.conv1.mix_activ(fq_out7)
+
+                int_out9 = _act(int_model.backbone.bb_2_0.conv2.mix_weight(_act(
+                    int_model.backbone.bb_2_0.conv1.mix_weight(int_out8))))
+                int_res9 = int_model.backbone.bb_2_0.downsample.mix_weight(int_out8)
+                int_out10 = _act(int_model.backbone.bb_2_0.qadd(int_out9, int_res9))
+
+                diff_max = torch.abs(int_out10 - (fq_act8 * 127 / act_scale)).max()
+
+                print(f'bb_2_0 diff max: {diff_max}')
+
+                # bb_2_1
+                fq_out8 = fq_model.backbone.bb_2_1(fq_out7)
+                fq_act9, act_scale = fq_model.backbone.bb_2_2.conv1.mix_activ(fq_out8)
+
+                int_out11 = _act(int_model.backbone.bb_2_1.conv2.mix_weight(_act(
+                    int_model.backbone.bb_2_1.conv1.mix_weight(int_out10))))
+                int_res11 = int_out10
+                int_out11 = _act(int_model.backbone.bb_2_1.qadd(int_out11, int_res11))
+
+                diff_max = torch.abs(int_out11 - (fq_act9 * 127 / act_scale)).max()
+
+                print(f'bb_2_1 diff max: {diff_max}')
+
+                # bb_2_2
+                fq_out9 = fq_model.backbone.bb_2_2(fq_out8)
+                fq_act10, act_scale = fq_model.backbone.bb_3_0.conv1.mix_activ(fq_out9)
+
+                int_out12 = _act(int_model.backbone.bb_2_2.conv2.mix_weight(_act(
+                    int_model.backbone.bb_2_2.conv1.mix_weight(int_out11))))
+                int_res12 = int_out11
+                int_out13 = _act(int_model.backbone.bb_2_2.qadd(int_out12, int_res12))
+
+                diff_max = torch.abs(int_out13 - (fq_act10 * 127 / act_scale)).max()
+
+                print(f'bb_2_2 diff max: {diff_max}')
+
+                # bb_3_0
+                fq_out10 = fq_model.backbone.bb_3_0(fq_out9)
+                fq_act11, act_scale = fq_model.backbone.bb_3_1.conv1.mix_activ(fq_out10)
+
+                int_out14 = _act(int_model.backbone.bb_3_0.conv2.mix_weight(_act(
+                    int_model.backbone.bb_3_0.conv1.mix_weight(int_out13))))
+                int_res14 = int_model.backbone.bb_3_0.downsample.mix_weight(int_out13)
+                int_out15 = _act(int_model.backbone.bb_3_0.qadd(int_out14, int_res14))
+
+                diff_max = torch.abs(int_out15 - (fq_act11 * 127 / act_scale)).max()
+
+                print(f'bb_3_0 diff max: {diff_max}')
+
+                # bb_3_1
+                fq_out11 = fq_model.backbone.bb_3_1(fq_out10)
+                fq_act12, act_scale = fq_model.backbone.bb_3_2.conv1.mix_activ(fq_out11)
+
+                int_out16 = _act(int_model.backbone.bb_3_1.conv2.mix_weight(_act(
+                    int_model.backbone.bb_3_1.conv1.mix_weight(int_out15))))
+                int_res16 = int_out15
+                int_out17 = _act(int_model.backbone.bb_3_1.qadd(int_out16, int_res16))
+
+                diff_max = torch.abs(int_out17 - (fq_act12 * 127 / act_scale)).max()
+
+                print(f'bb_3_1 diff max: {diff_max}')
+
+                # bb_3_2
+                fq_out12 = fq_model.backbone.bb_3_2(fq_out11)
+                fq_act13, act_scale = fq_model.backbone.pool.mix_activ(fq_out12)
+
+                int_out18 = _act(int_model.backbone.bb_3_2.conv2.mix_weight(_act(
+                    int_model.backbone.bb_3_2.conv1.mix_weight(int_out17))))
+                int_res18 = int_out17
+                int_out19 = _act(int_model.backbone.bb_3_2.qadd(int_out18, int_res18))
+
+                diff_max = torch.abs(int_out19 - (fq_act13 * 127 / act_scale)).max()
+
+                print(f'bb_3_2 diff max: {diff_max}')
+
+                # pool
+                fq_pool = fq_model.backbone.pool(fq_out12)
+                fq_actfc, act_scale = fq_model.fc.mix_activ(fq_pool)
+
+                int_pool = _act(int_model.backbone.pool(int_out19))
+
+                diff_max = torch.abs(int_pool - (fq_actfc * 127 / act_scale)).max()
+
+                print(f'pool diff max: {diff_max}')
+                a=1
 
 
 def train(train_loader, val_loader, test_loader, model, criterion, optimizer, epochs, args):

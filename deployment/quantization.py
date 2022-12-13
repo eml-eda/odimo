@@ -7,7 +7,7 @@ import torch.fx as fx
 import deployment.observer as obs
 from deployment.utils import IntegerizationMode
 
-import models.quant_module as qm
+import models.quant_module_pow2 as qm
 
 __all__ = [
     'build_qgraph',
@@ -197,10 +197,13 @@ def _extract_qinfo(module):
     # q_a = module.mix_activ.mix_activ[0]
     for q_a in module.mix_activ.mix_activ:
         s_x[q_a.num_bits] = q_a.clip_val / (2**q_a.num_bits - 1)
+        # s_x[q_a.num_bits] = torch.exp2(-torch.log2((2**q_a.num_bits - 1) / q_a.clip_val).floor())
 
     # q_w = module.mix_weight.mix_weight[0]
     for q_w in module.mix_weight.mix_weight:
-        s_w[q_w.num_bits] = torch.exp(q_w.scale_param) / (2**(q_w.num_bits - 1) - 1)
+        # s_w[q_w.num_bits] = torch.exp(q_w.scale_param) / (2**(q_w.num_bits - 1) - 1)
+        s_w[q_w.num_bits] = torch.exp2(
+            torch.log2(q_w.scale_param).floor()) / (2**(q_w.num_bits - 1) - 1)
         b_16[q_w.num_bits] = module.mix_weight.conv.bias
     return s_x, s_w, b_16
 
@@ -313,7 +316,7 @@ def build_qgraph(
 
                     target = s_x[7] / s_y[7]
                     n_sh, alpha = _integer_approximation(target,
-                                                         sh_b=32, alpha_b=8)
+                                                         sh_b=32, alpha_b=0)
                     n.meta['alpha'] = alpha
                     n.meta['n_sh'] = n_sh
                 else:
@@ -345,7 +348,8 @@ def build_qgraph(
                             # TODO: find better way than hard-coding 7 for act
                             target = s_w[wbit] * s_x[7] / s_y[7]
                             n_sh[wbit], alpha[wbit] = _integer_approximation(target,
-                                                                             sh_b=32, alpha_b=8)
+                                                                             sh_b=32, alpha_b=0)
+                            a=1
                         else:
                             raise ValueError('2 and 8 are only supported wbits')
                     n.meta['alpha'] = alpha

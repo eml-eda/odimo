@@ -305,8 +305,10 @@ class FQConvBiasQuantization(nn.Module):
         # Having a positive scale factor is preferable to avoid instabilities
         if self.round_pow2:
             # act_scale_approx = torch.round(torch.log2(act_scale / n_a))
+            w_scale_approx = torch.exp2(FloorSTE.apply(torch.log2(w_scale)))
             # scale_param = n_b * (torch.exp2(w_scale) / n_w) * act_scale_approx
-            scale_param = n_b * (torch.exp2(w_scale) / n_w) * (act_scale / n_a)
+            # scale_param = n_b * (torch.exp2(w_scale) / n_w) * (act_scale / n_a)
+            scale_param = n_b * (w_scale_approx / n_w) * (act_scale / n_a)
         else:
             scale_param = n_b * (torch.exp(w_scale) / n_w) * (act_scale / n_a)
         x_scaled = x / scale_param.view(self.n_s)
@@ -321,6 +323,16 @@ class FQConvBiasQuantization(nn.Module):
 
     def __repr__(self):
         return f'{self.__class__.__name__}(num_bits={self.num_bits})'
+
+
+class FloorSTE(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x):
+        return torch.floor(x)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output
 
 
 # MR (Ref: https://arxiv.org/abs/1912.09356)
@@ -352,7 +364,8 @@ class FQConvWeightQuantization(nn.Module):
     def forward(self, x):
         # Having a positive scale factor is preferable to avoid instabilities
         if self.round_pow2:
-            exp_scale_param = torch.exp2(self.scale_param)
+            # exp_scale_param = torch.exp2(self.scale_param)
+            exp_scale_param = torch.exp2(FloorSTE.apply(torch.log2(self.scale_param)))
         else:
             exp_scale_param = torch.exp(self.scale_param)
         x_scaled = x / exp_scale_param.view(self.n_s, 1, 1, 1)
@@ -372,12 +385,13 @@ class FQConvWeightQuantization(nn.Module):
 
 class QuantAdd(nn.Module):
 
-    def __init__(self, abits, clip_val=None):
+    def __init__(self, abits, clip_val=None, **kwargs):
         super().__init__()
         # Quantizer activations
         self.abits = abits
 
-        self.mix_activ = QuantPaCTActiv(abits)
+        round_pow2 = kwargs.pop('round_pow2', True)  # TODO: in general should be False
+        self.mix_activ = QuantPaCTActiv(abits, round_pow2=round_pow2)
         if clip_val is not None:
             self.mix_activ.mix_activ[0].clip_val = clip_val
 
@@ -401,31 +415,13 @@ class QuantAdd(nn.Module):
         `IntegerizationMode.FakeInt`
         :type mode: IntegerizationMode
         """
-        raise NotImplementedError
         submodule = mod.get_submodule(str(n.target))
-        if type(submodule) != QuantAvgPool2d:
+        if type(submodule) != QuantAdd:
             raise TypeError(f"Trying to export a layer of type{type(submodule)}")
-        pool = submodule.pool
         if mode is IntegerizationMode.FakeInt:
-            new_submodule = im.FakeIntAvgPool2d(
-                n.meta, submodule.abits,
-                kernel_size=pool.kernel_size,
-                stride=pool.stride,
-                padding=pool.padding,
-                ceil_mode=pool.ceil_mode,
-                count_include_pad=pool.count_include_pad,
-                divisor_override=pool.divisor_override
-            )
+            new_submodule = im.FakeIntAdd(n.meta, submodule.abits)
         elif mode is IntegerizationMode.Int:
-            new_submodule = im.IntAvgPool2d(
-                n.meta,
-                kernel_size=pool.kernel_size,
-                stride=pool.stride,
-                padding=pool.padding,
-                ceil_mode=pool.ceil_mode,
-                count_include_pad=pool.count_include_pad,
-                divisor_override=pool.divisor_override
-            )
+            new_submodule = im.IntAdd(n.meta)
 
         mod.add_submodule(str(n.target), new_submodule)
         return
@@ -438,7 +434,8 @@ class QuantAvgPool2d(nn.Module):
         # Quantizer activations
         self.abits = abits
         max_inp_val = kwargs.pop('max_inp_val', 6.)
-        self.mix_activ = QuantPaCTActiv(abits, max_inp_val)
+        round_pow2 = kwargs.pop('round_pow2', True)  # TODO: in general should be False
+        self.mix_activ = QuantPaCTActiv(abits, max_inp_val, round_pow2)
 
         # Pooling
         self.kernel_size = kernel_size
@@ -695,6 +692,29 @@ class QuantPaCTActiv(nn.Module):
             act_scale.append(branch.clip_val)
         activ = sum(outs)
         return activ, torch.stack(act_scale)
+
+    @staticmethod
+    def autoconvert(n: fx.Node, mod: fx.GraphModule, mode: IntegerizationMode):
+        """Replaces a fx.Node corresponding to a QuantPactActiv,
+        with a ResidualBranch layer within a fx.GraphModule.
+        This operation is need only to satisfy torch.fx
+
+        :param n: the node to be rewritten, corresponds to a
+        ResidualBranch layer
+        :type n: fx.Node
+        :param mod: the parent module, where the new node has to be inserted
+        :type mod: fx.GraphModule
+        :param mode: integerization mode. Use `IntegerizationMode.Int` or
+        `IntegerizationMode.FakeInt`
+        :type mode: IntegerizationMode
+        """
+        submodule = mod.get_submodule(str(n.target))
+        if type(submodule) != QuantPaCTActiv:
+            raise TypeError(f"Trying to export a layer of type{type(submodule)}")
+        new_submodule = im.ResidualBranch()
+
+        mod.add_submodule(str(n.target), new_submodule)
+        return
 
 
 # MR

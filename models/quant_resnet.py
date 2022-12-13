@@ -9,6 +9,7 @@ import torchvision
 
 from . import utils
 from . import quant_module as qm
+from . import quant_module_pow2 as qm2
 from . import hw_models as hw
 
 # MR
@@ -20,6 +21,7 @@ __all__ = [
     'quantres8_w8a8_pretrained', 'quantres8_w8a8_nobn_pretrained',
     'quantres20_w8a8', 'quantres20_w8a8_foldbn',
     'quantres20_w8a7_foldbn',
+    'quantres20_w8a7_pow2_foldbn',
     'quantres8_w8a7_foldbn',
     'quantres8_w5a8',
     'quantres8_w2a8', 'quantres8_w2a8_nobn',
@@ -121,7 +123,7 @@ class Backbone20(nn.Module):
                                  bn=bn, **kwargs)
         if not self.fp:
             # If not fp we use quantized pooling
-            self.pool = qm.QuantAvgPool2d(abits[0], 8)
+            self.pool = qm2.QuantAvgPool2d(abits[0], 8)
         else:
             self.pool = nn.AvgPool2d(8)
 
@@ -188,18 +190,18 @@ class BasicBlock(nn.Module):
                 self.downsample.mix_activ.mix_activ[0].clip_val = inp_clip_val
 
                 # Quantized Sum node
-                self.qadd = qm.QuantAdd(archas[0])
+                self.qadd = qm2.QuantAdd(archas[0])
         else:
             self.downsample = None
             if not self.fp:
                 # If not fp and no downsample op we need to quantize the residual branch
-                self.inp_q = qm.QuantPaCTActiv(archas[0])
+                self.inp_q = qm2.QuantPaCTActiv(archas[0], round_pow2=True)
                 # Couple input clip_val
                 inp_clip_val = self.conv1.mix_activ.mix_activ[0].clip_val
                 self.inp_q.mix_activ[0].clip_val = inp_clip_val
 
                 # Quantized Sum node
-                self.qadd = qm.QuantAdd(archas[0], clip_val=inp_clip_val)
+                self.qadd = qm2.QuantAdd(archas[0], clip_val=inp_clip_val)
 
     def forward(self, x):
         if self.downsample is not None:
@@ -978,6 +980,40 @@ def quantres20_w8a7_foldbn(arch_cfg_path, **kwargs):
     q_model = ResNet20(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                        archws, archas, qtz_fc='multi', bn=False, **kwargs)
 
+    # Load pretrained fp state_dict
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_model.load_state_dict(fp_state_dict)
+    # Fold bn
+    fp_model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(fp_model)
+    folded_state_dict = folded_model.state_dict()
+
+    # Delete fp and folded model
+    del fp_model, folded_model
+
+    # Translate folded fp state dict in a format compatible with quantized layers
+    q_state_dict = utils.fpfold_to_q(folded_state_dict)
+    # Load folded fp state dict in quantized model
+    q_model.load_state_dict(q_state_dict, strict=False)
+
+    # Init scale param
+    utils.init_scale_param(q_model)
+
+    return q_model
+
+
+def quantres20_w8a7_pow2_foldbn(arch_cfg_path, **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[7]] * 22, [[8]] * 22
+    s_up = kwargs.pop('analog_speedup', 5.)
+    fp_model = ResNet20(qm.FpConv2d, hw.diana(analog_speedup=s_up),
+                        archws, archas, qtz_fc='multi', **kwargs)
+    q_model = ResNet20(qm2.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
+                       archws, archas, qtz_fc='multi', bn=False, **kwargs)
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     fp_model.load_state_dict(fp_state_dict)
