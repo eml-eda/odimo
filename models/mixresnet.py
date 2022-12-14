@@ -7,6 +7,7 @@ import torch.nn.functional as F
 
 from . import utils
 from . import quant_module as qm
+from . import quant_module_pow2 as qm2
 from . import hw_models as hw
 from .quant_resnet import quantres8_fp_foldbn, quantres20_fp_foldbn, quantres20_fp, \
     quantres18_fp_foldbn, quantres18_fp
@@ -17,7 +18,7 @@ __all__ = [
     'mixres8_diana_naive5', 'mixres8_diana_naive10', 'mixres8_diana_naive100',
     'mixres8_diana',
     'mixres20_diana_naive5', 'mixres20_diana_naive10',
-    'mixres20_diana_reduced', 'mixres20_diana_full',
+    'mixres20_diana_reduced', 'mixres20_diana_full', 'mixres20_pow2_diana_full',
     'mixres18_diana_naive5', 'mixres18_diana_naive10',
     'mixres18_diana_reduced', 'mixres18_diana_full',
 ]
@@ -88,7 +89,7 @@ class Backbone20(nn.Module):
                                        bn=bn, **kwargs)
         if not self.fp:
             # If not fp we use quantized pooling
-            self.pool = qm.QuantAvgPool2d(kwargs['abits'], kernel_size=8)
+            self.pool = qm2.QuantAvgPool2d(kwargs['abits'], kernel_size=8)
         else:
             self.pool = nn.AvgPool2d(kernel_size=8)
 
@@ -201,18 +202,18 @@ class BasicBlockGumbel(nn.Module):
                 self.downsample.mix_activ.mix_activ[0].clip_val = inp_clip_val
 
                 # Quantized Sum node
-                self.qadd = qm.QuantAdd(kwargs['abits'])
+                self.qadd = qm2.QuantAdd(kwargs['abits'])
         else:
             self.downsample = None
             if not self.fp:
                 # If not fp and no downsample op we need to quantize the residual branch
-                self.inp_q = qm.QuantPaCTActiv(kwargs['abits'])
+                self.inp_q = qm2.QuantPaCTActiv(kwargs['abits'])
                 # Couple input clip_val
                 inp_clip_val = self.conv1.mix_activ.mix_activ[0].clip_val
                 self.inp_q.mix_activ[0].clip_val = inp_clip_val
 
                 # Quantized Sum node
-                self.qadd = qm.QuantAdd(kwargs['abits'], clip_val=inp_clip_val)
+                self.qadd = qm2.QuantAdd(kwargs['abits'], clip_val=inp_clip_val)
 
     def forward(self, x, temp, is_hard):
         if self.downsample is not None:
@@ -307,7 +308,7 @@ class ResNet20(nn.Module):
             return x
 
     def complexity_loss(self):
-        loss = 0
+        loss = torch.tensor(0.)
         for m in self.modules():
             if isinstance(m, self.conv_func):
                 loss = loss + m.complexity_loss()
@@ -627,6 +628,15 @@ def mixres20_diana_full(arch_cfg_path, **kwargs):
     # NB: 2 bits is equivalent for ternary weights!!
     search_model = ResNet20(
         qm.MultiPrecActivConv2d, hw.diana(), [True]*22,
+        search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
+        share_weight=True, **kwargs)
+    return _mixres20_diana(arch_cfg_path, search_model)
+
+
+def mixres20_pow2_diana_full(arch_cfg_path, **kwargs):
+    # NB: 2 bits is equivalent for ternary weights!!
+    search_model = ResNet20(
+        qm2.MultiPrecActivConv2d, hw.diana(), [True]*22,
         search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
         share_weight=True, **kwargs)
     return _mixres20_diana(arch_cfg_path, search_model)

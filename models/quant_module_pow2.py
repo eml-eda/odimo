@@ -740,20 +740,22 @@ class QuantMultiPrecConv2d(nn.Module):
         self.mix_weight = nn.ModuleList()
         self.mix_bias = nn.ModuleList()
         self.train_scale_param = kwargs.pop('train_scale_param', True)
-        self.round_pow2 = kwargs.pop('round_pow2', True)  # TODO: False
+        # self.round_pow2 = kwargs.pop('round_pow2', True)  # TODO: False
+        # round_pow2 = False if self.bits == [2] else True
         for bit in self.bits:
+            round_pow2 = False if bit == 2 else True
             self.mix_weight.append(
                 FQConvWeightQuantization(
                     outplane, k_size,
                     num_bits=bit,
                     train_scale_param=self.train_scale_param,
-                    round_pow2=self.round_pow2))
+                    round_pow2=round_pow2))
             self.mix_bias.append(
                 FQConvBiasQuantization(
                     outplane,
                     num_bits=bit,
                     abit=self.abits,
-                    round_pow2=self.round_pow2))
+                    round_pow2=round_pow2))
 
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
 
@@ -920,7 +922,7 @@ class QuantMixChanConv2d(nn.Module):
 # DJP
 class MixQuantPaCTActiv(nn.Module):
 
-    def __init__(self, bits, max_inp_val=6., gumbel=False):
+    def __init__(self, bits, max_inp_val=6., round_pow2=False, gumbel=False):
         super().__init__()
         self.bits = bits
         self.gumbel = gumbel
@@ -928,8 +930,10 @@ class MixQuantPaCTActiv(nn.Module):
         self.alpha_activ.data.fill_(0.01)
         self.mix_activ = nn.ModuleList()
         for bit in self.bits:
-            self.mix_activ.append(LearnedClippedLinearQuantization(num_bits=bit,
-                                                                   init_act_clip_val=max_inp_val))
+            self.mix_activ.append(
+                LearnedClippedLinearQuantization(num_bits=bit,
+                                                 init_act_clip_val=max_inp_val,
+                                                 round_pow2=round_pow2))
 
     def forward(self, input, temp, is_hard):
         outs = list()
@@ -1073,16 +1077,19 @@ class SharedMultiPrecConv2d(nn.Module):
         self.mix_bias = nn.ModuleList()
         self.train_scale_param = kwargs.pop('train_scale_param', True)
         for bit in self.bits:
+            round_pow2 = False if bit == 2 else True
             self.mix_weight.append(
                 FQConvWeightQuantization(
                     outplane, k_size,
                     num_bits=bit,
-                    train_scale_param=self.train_scale_param))
+                    train_scale_param=self.train_scale_param,
+                    round_pow2=round_pow2))
             self.mix_bias.append(
                 FQConvBiasQuantization(
                     outplane,
                     num_bits=bit,
-                    abit=self.abits))
+                    abit=self.abits,
+                    round_pow2=round_pow2))
 
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
 
@@ -1154,9 +1161,11 @@ class MultiPrecActivConv2d(nn.Module):
         self.temp = 1
 
         max_inp_val = kwargs.pop('max_inp_val', 6.)
+        round_pow2 = kwargs.pop('round_pow2', True)  # TODO: in general should be False
 
         # build mix-precision branches
-        self.mix_activ = MixQuantPaCTActiv(self.abits, max_inp_val, gumbel=self.gumbel)
+        self.mix_activ = MixQuantPaCTActiv(self.abits, max_inp_val, round_pow2,
+                                           gumbel=self.gumbel)
         # for multiprec, only share-weight is feasible
         assert share_weight
         if not self.fc:

@@ -124,7 +124,8 @@ def fix_ch_prec(model, prec, ch):
     i = 0
     with torch.no_grad():
         for name, module in model.named_modules():
-            if isinstance(module, qm.QuantMultiPrecConv2d):
+            if isinstance(module, (qm.QuantMultiPrecConv2d,
+                                   qm2.QuantMultiPrecConv2d)):
                 if module.alpha_weight.shape[0] > 1:
                     idx = module.bits.index(prec)
                     if type(ch) is list:
@@ -226,7 +227,8 @@ def init_scale_param(model):
             if isinstance(module,
                           (qm.QuantMultiPrecConv2d,
                            qm2.QuantMultiPrecConv2d,
-                           qm.SharedMultiPrecConv2d)):
+                           qm.SharedMultiPrecConv2d,
+                           qm2.SharedMultiPrecConv2d)):
                 w = module.conv.weight
                 for submodule in module.mix_weight:
                     nb = submodule.num_bits
