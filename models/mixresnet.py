@@ -20,7 +20,7 @@ __all__ = [
     'mixres20_diana_naive5', 'mixres20_diana_naive10',
     'mixres20_diana_reduced', 'mixres20_diana_full', 'mixres20_pow2_diana_full',
     'mixres18_diana_naive5', 'mixres18_diana_naive10',
-    'mixres18_diana_reduced', 'mixres18_diana_full',
+    'mixres18_diana_reduced', 'mixres18_diana_full', 'mixres18_pow2_diana_full',
 ]
 
 
@@ -152,7 +152,7 @@ class Backbone18(nn.Module):
                                        stride=1, bn=bn, **kwargs)
         if not self.fp:
             # If not fp we use quantized pooling
-            self.avg_pool = qm.QuantAvgPool2d(kwargs['abits'], kernel_size=8)
+            self.avg_pool = qm2.QuantAvgPool2d(kwargs['abits'], kernel_size=8)
         else:
             self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
 
@@ -677,6 +677,16 @@ def mixres18_diana_full(arch_cfg_path, **kwargs):
     # NB: 2 bits is equivalent for ternary weights!!
     search_model = ResNet18(
         qm.MultiPrecActivConv2d, hw.diana(), [True]*22,
+        search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
+        share_weight=True, std_head=std_head, **kwargs)
+    return _mixres18_diana(arch_cfg_path, search_model, std_head)
+
+
+def mixres18_pow2_diana_full(arch_cfg_path, **kwargs):
+    std_head = kwargs.pop('std_head', True)
+    # NB: 2 bits is equivalent for ternary weights!!
+    search_model = ResNet18(
+        qm2.MultiPrecActivConv2d, hw.diana(), [True]*22,
         search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
         share_weight=True, std_head=std_head, **kwargs)
     return _mixres18_diana(arch_cfg_path, search_model, std_head)
