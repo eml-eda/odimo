@@ -20,7 +20,7 @@ from torchvision.transforms.functional import InterpolationMode
 from deployment.observer import insert_observers  # , remove_observers
 from deployment.quantization import IntegerizationMode, build_qgraph
 import models
-import models.quant_module as qm
+import models.quant_module_pow2 as qm
 # from models.int_module import FakeIntMultiPrecActivConv2d, FakeIntAvgPool2d, FakeIntAdd
 
 from data import get_data, build_dataloaders
@@ -188,7 +188,8 @@ def main_worker(args):
     obs_model = insert_observers(copy.deepcopy(model),
                                  target_layers=(model.conv_func,
                                                 qm.QuantAvgPool2d,
-                                                qm.QuantAdd))
+                                                qm.QuantAdd,
+                                                qm.QuantPaCTActiv))
     if args.gpu is not None:
         obs_model = obs_model.cuda(args.gpu)
     obs_model.eval()
