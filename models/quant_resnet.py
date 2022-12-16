@@ -46,7 +46,7 @@ __all__ = [
     'quantres18_fp', 'quantres18_fp_reduced', 'quantres18_fp_prtrext', 'quantres18_fp_foldbn',
     'quantres18_w8a7_foldbn', 'quantres18_w8a7_pow2_foldbn',
     'quantres18_w2a7_foldbn', 'quantres18_w2a7_pow2_foldbn',
-    'quantres18_w2a7_true_foldbn',
+    'quantres18_w2a7_true_foldbn', 'quantres18_w2a7_true_pow2_foldbn',
     'quantres18_minlat64_foldbn',
     'quantres18_minlat64_max8_foldbn', 'quantres18_minlat64_max8_pow2_foldbn',
     'quantres18_minlat64_naive5_foldbn', 'quantres18_minlat64_naive10_foldbn',
