@@ -7,13 +7,14 @@ import torch.nn.functional as F
 
 from . import utils
 from . import quant_module as qm
+from . import quant_module_pow2 as qm2
 from . import hw_models as hw
 from .quant_mobilenetv1 import quantmobilenetv1_fp, quantmobilenetv1_fp_foldbn
 
 # MR
 __all__ = [
     'mixmobilenetv1_diana_naive5', 'mixmobilenetv1_diana_naive10',
-    'mixmobilenetv1_diana_full',
+    'mixmobilenetv1_diana_full', 'mixmobilenetv1_pow2_diana_full',
     'mixmobilenetv1_diana_reduced',
 ]
 
@@ -164,8 +165,8 @@ class Backbone(nn.Module):
             stride=1, bn=bn, **kwargs)
         if not self.fp:
             # If not fp we use quantized pooling
-            self.pool = qm.QuantAvgPool2d(kwargs['abits'],
-                                          int(input_size / (2**5)))
+            self.pool = qm2.QuantAvgPool2d(kwargs['abits'],
+                                           int(input_size / (2**5)))
         else:
             self.pool = nn.AvgPool2d(int(input_size / (2**5)))
 
@@ -299,6 +300,14 @@ def mixmobilenetv1_diana_naive10(arch_cfg_path, **kwargs):
 def mixmobilenetv1_diana_full(arch_cfg_path, **kwargs):
     search_model = MobileNetV1(
         qm.MultiPrecActivConv2d, hw.diana(), [True]*28,
+        search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
+        share_weight=True, **kwargs)
+    return _mixmobilenetv1_diana(arch_cfg_path, search_model)
+
+
+def mixmobilenetv1_pow2_diana_full(arch_cfg_path, **kwargs):
+    search_model = MobileNetV1(
+        qm2.MultiPrecActivConv2d, hw.diana(), [True]*28,
         search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
         share_weight=True, **kwargs)
     return _mixmobilenetv1_diana(arch_cfg_path, search_model)

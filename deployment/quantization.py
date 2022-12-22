@@ -173,6 +173,8 @@ def _binary_search(div, low, high, x):
         # diff_high = abs(high*div - x)
 
         # if diff_mid < diff_high:
+        if x == mid*div:
+            return mid
         if x < mid*div:
             return _binary_search(div, low, mid-1, x)
         else:
@@ -319,7 +321,7 @@ def build_qgraph(
 
                     target = s_x[7] / s_y[7]
                     n_sh, alpha = _integer_approximation(target,
-                                                         sh_b=32, alpha_b=0)
+                                                         sh_b=32, alpha_b=3)
                     n.meta['alpha'] = alpha
                     n.meta['n_sh'] = n_sh
                 else:
@@ -352,7 +354,6 @@ def build_qgraph(
                             target = s_w[wbit] * s_x[7] / s_y[7]
                             n_sh[wbit], alpha[wbit] = _integer_approximation(target,
                                                                              sh_b=32, alpha_b=0)
-                            a=1
                         else:
                             raise ValueError('2 and 8 are only supported wbits')
                     n.meta['alpha'] = alpha

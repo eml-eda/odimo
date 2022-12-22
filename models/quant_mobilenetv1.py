@@ -9,19 +9,20 @@ import torch.nn.functional as F
 
 from . import utils
 from . import quant_module as qm
+from . import quant_module_pow2 as qm2
 from . import hw_models as hw
 
 # MR
 __all__ = [
     'quantmobilenetv1_fp', 'quantmobilenetv1_fp_foldbn',
-    'quantmobilenetv1_w8a7_foldbn',
-    'quantmobilenetv1_w2a7_foldbn',
+    'quantmobilenetv1_w8a7_foldbn', 'quantmobilenetv1_w8a7_pow2_foldbn',
+    'quantmobilenetv1_w2a7_foldbn', 'quantmobilenetv1_w2a7_pow2_foldbn',
     'quantmobilenetv1_w2a7_true_foldbn',
     'quantmobilenetv1_minlat_foldbn',
     'quantmobilenetv1_minlat_max8_foldbn',
     'quantmobilenetv1_minlat_naive5_foldbn', 'quantmobilenetv1_minlat_naive10_foldbn',
     'quantmobilenetv1_diana_naive5', 'quantmobilenetv1_diana_naive10',
-    'quantmobilenetv1_diana_full',
+    'quantmobilenetv1_diana_full', 'quantmobilenetv1_pow2_diana_full',
     'quantmobilenetv1_diana_reduced',
     ]
 
@@ -107,7 +108,7 @@ class Backbone(nn.Module):
             wbits[24:26], abits[24:26], stride=1, bn=bn, **kwargs)
         if not self.fp:
             # If not fp we use quantized pooling
-            self.pool = qm.QuantAvgPool2d(abits[0], int(input_size / (2**5)))
+            self.pool = qm2.QuantAvgPool2d(abits[0], int(input_size / (2**5)))
         else:
             self.pool = nn.AvgPool2d(int(input_size / (2**5)))
 
@@ -309,6 +310,41 @@ def quantmobilenetv1_w8a7_foldbn(arch_cfg_path, **kwargs):
     return q_model
 
 
+def quantmobilenetv1_w8a7_pow2_foldbn(arch_cfg_path, **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[7]] * 28, [[8]] * 28
+    s_up = kwargs.pop('analog_speedup', 5.)
+    fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=s_up),
+                           archws, archas, qtz_fc='multi', **kwargs)
+    q_model = MobileNetV1(qm2.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
+                          archws, archas, qtz_fc='multi', bn=False, **kwargs)
+
+    # Load pretrained fp state_dict
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_model.load_state_dict(fp_state_dict)
+    # Fold bn
+    fp_model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(fp_model)
+    folded_state_dict = folded_model.state_dict()
+
+    # Delete fp and folded model
+    del fp_model, folded_model
+
+    # Translate folded fp state dict in a format compatible with quantized layers
+    q_state_dict = utils.fpfold_to_q(folded_state_dict)
+    # Load folded fp state dict in quantized model
+    q_model.load_state_dict(q_state_dict, strict=False)
+
+    # Init scale param
+    utils.init_scale_param(q_model)
+
+    return q_model
+
+
 def quantmobilenetv1_w2a7_foldbn(arch_cfg_path, **kwargs):
     # Check `arch_cfg_path` existence
     if not Path(arch_cfg_path).exists():
@@ -323,6 +359,45 @@ def quantmobilenetv1_w2a7_foldbn(arch_cfg_path, **kwargs):
     fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=s_up),
                            archws, archas, qtz_fc='multi', **kwargs)
     q_model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
+                          archws, archas, qtz_fc='multi', bn=False,
+                          **kwargs)
+
+    # Load pretrained fp state_dict
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_model.load_state_dict(fp_state_dict)
+    # Fold bn
+    fp_model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(fp_model)
+    folded_state_dict = folded_model.state_dict()
+
+    # Delete fp and folded model
+    del fp_model, folded_model
+
+    # Translate folded fp state dict in a format compatible with quantized layers
+    q_state_dict = utils.fpfold_to_q(folded_state_dict)
+    # Load folded fp state dict in quantized model
+    q_model.load_state_dict(q_state_dict, strict=False)
+
+    # Init scale param
+    utils.init_scale_param(q_model)
+
+    return q_model
+
+
+def quantmobilenetv1_w2a7_pow2_foldbn(arch_cfg_path, **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[7]] * 28, [[2]] * 28
+    # Set first and last layer weights precision to 8bit
+    archws[0] = [8]
+    archws[-1] = [8]
+    s_up = kwargs.pop('analog_speedup', 5.)
+    fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=s_up),
+                           archws, archas, qtz_fc='multi', **kwargs)
+    q_model = MobileNetV1(qm2.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                           archws, archas, qtz_fc='multi', bn=False,
                           **kwargs)
 
@@ -609,6 +684,31 @@ def quantmobilenetv1_diana_full(arch_cfg_path, **kwargs):
 
     kwargs.pop('analog_speedup', 5.)
     model = MobileNetV1(qm.QuantMultiPrecActivConv2d, hw.diana(),
+                        archws, archas, qtz_fc='multi', bn=False, **kwargs)
+    utils.init_scale_param(model)
+
+    return _quantmobilenetv1_diana(arch_cfg_path, model, **kwargs)
+
+
+def quantmobilenetv1_pow2_diana_full(arch_cfg_path, **kwargs):
+    wbits, abits = [8, 2], [7]
+
+    # ## This block of code is only necessary to comply with the underlying EdMIPS code ##
+    best_arch, worst_arch = _load_arch_multi_prec(arch_cfg_path)
+    archas = [abits for a in best_arch['alpha_activ']]
+    archws = [wbits for w_ch in best_arch['alpha_weight']]
+    # if len(archws) == 20:
+    #     # Case of fixed-precision on last fc layer
+    #     archws.append(8)
+    # assert len(archas) == 21  # 10 insead of 8 because conv1 and fc activations are also quantized
+    # assert len(archws) == 21  # 10 instead of 8 because conv1 and fc weights are also quantized
+    ##
+
+    archws[0] = [8]
+    archws[-1] = [8]
+
+    kwargs.pop('analog_speedup', 5.)
+    model = MobileNetV1(qm2.QuantMultiPrecActivConv2d, hw.diana(),
                         archws, archas, qtz_fc='multi', bn=False, **kwargs)
     utils.init_scale_param(model)
 
