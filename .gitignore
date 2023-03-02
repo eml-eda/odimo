@@ -2,6 +2,7 @@ __pycache__
 image_classification/cifar10/data
 ql_c10_res20/data
 image_classification/cifar10/deployment
+image_classification/cifar10/deployment_pow2
 image_classification/tiny-imagenet/data
 image_classification/tiny-imagenet/deployment
 visual_wake_words/data
