@@ -150,3 +150,10 @@ def diana(**kwargs):
             raise ValueError(f'Unknown accelerator: {accelerator}')
 
     return diana_model
+
+
+class DianaPower:
+    def __init__(self):
+        self.p_dig = 24.96  # [mW]
+        self.p_ana = 28.74  # [mW]
+        self.p_hyb = 42.39  # [mW]

@@ -12,6 +12,7 @@ path="."
 #arch="res8_w248a248_multiprec"
 pretrained_model="warmup20_fp.pth.tar"
 arch=$2
+target=$3
 
 project="hp-nas_ic"
 
@@ -20,10 +21,10 @@ project="hp-nas_ic"
 #tags="init_same no_wp reg_w"
 tags="init_same wp reg_w softemp"
 
-if [[ "$3" == "now" ]]; then
+if [[ "$4" == "now" ]]; then
     timestamp=$(date +"%Y-%m-%d-%T")
 else
-    timestamp=$3
+    timestamp=$4
 fi
 
 # timestamp=$(date +"%Y-%m-%d-%T")
@@ -33,7 +34,7 @@ mkdir -p ${path}/${arch}/model_${strength}/${timestamp}
 
 export WANDB_MODE=offline
 
-if [[ "$4" == "search" ]]; then
+if [[ "$5" == "search" ]]; then
     echo Search
     split=0.0
     # NB: add --warmup-8bit if needed
@@ -42,13 +43,13 @@ if [[ "$4" == "search" ]]; then
         --epochs 200 --step-epoch 50 -b 128 -j 4 \
         --ac ${pretrained_model} --patience 50 \
         --lr 0.001 --lra 0.001 --wd 1e-4 \
-        --ai same --cd ${strength} --rt weights \
+        --ai same --cd ${strength} --target ${target} \
         --seed 42 --gpu 0 \
         --no-gumbel-softmax --temperature 1 --anneal-temp \
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/${timestamp}/log_search_${strength}.txt
 fi
 
-if [[ "$5" == "ft" ]]; then
+if [[ "$6" == "ft" ]]; then
     echo Fine-Tune
     python3 main_r20.py ${path}/${arch}/model_${strength}/${timestamp} -a quant${arch} \
         -d cifar10 --epochs 200 --step-epoch 50 -b 128 --patience 500 \

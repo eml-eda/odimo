@@ -25,14 +25,16 @@ __all__ = [
 
 
 def conv3x3(conv_func, hw_model, is_searchable, in_planes, out_planes,
-            bias=False, stride=1, groups=1, fix_qtz=False, **kwargs):
+            bias=False, stride=1, groups=1, fix_qtz=False,
+            target='latency', **kwargs):
     "3x3 convolution with padding"
     if conv_func != nn.Conv2d:
         if not is_searchable:
             kwargs['wbits'] = [8]
         return conv_func(hw_model, in_planes, out_planes,
                          kernel_size=3, groups=groups, stride=stride,
-                         padding=1, bias=bias, fix_qtz=fix_qtz, **kwargs)
+                         padding=1, bias=bias, fix_qtz=fix_qtz,
+                         target=target, **kwargs)
     else:
         return conv_func(in_planes, out_planes,
                          kernel_size=3, groups=groups, stride=stride,
@@ -66,27 +68,28 @@ def fc(conv_func, hw_model, is_searchable, in_planes, out_planes, stride=1, grou
 
 # MR
 class Backbone20(nn.Module):
-    def __init__(self, conv_func, hw_model, is_searchable, input_size, bn, **kwargs):
+    def __init__(self, conv_func, hw_model, is_searchable, input_size, bn,
+                 target='latency', **kwargs):
         self.fp = conv_func is qm.FpConv2d
         super().__init__()
         self.bb_1_0 = BasicBlockGumbel(conv_func, hw_model, is_searchable[:2], 16, 16, stride=1,
-                                       bn=bn, **kwargs)
+                                       bn=bn, target=target, **kwargs)
         self.bb_1_1 = BasicBlockGumbel(conv_func, hw_model, is_searchable[2:4], 16, 16, stride=1,
-                                       bn=bn, **kwargs)
+                                       bn=bn, target=target, **kwargs)
         self.bb_1_2 = BasicBlockGumbel(conv_func, hw_model, is_searchable[4:6], 16, 16, stride=1,
-                                       bn=bn, **kwargs)
+                                       bn=bn, target=target, **kwargs)
         self.bb_2_0 = BasicBlockGumbel(conv_func, hw_model, is_searchable[6:9], 16, 32, stride=2,
-                                       bn=bn, **kwargs)
+                                       bn=bn, target=target, **kwargs)
         self.bb_2_1 = BasicBlockGumbel(conv_func, hw_model, is_searchable[9:11], 32, 32, stride=1,
-                                       bn=bn, **kwargs)
+                                       bn=bn, target=target, **kwargs)
         self.bb_2_2 = BasicBlockGumbel(conv_func, hw_model, is_searchable[11:13], 32, 32, stride=1,
-                                       bn=bn, **kwargs)
+                                       bn=bn, target=target, **kwargs)
         self.bb_3_0 = BasicBlockGumbel(conv_func, hw_model, is_searchable[13:16], 32, 64, stride=2,
-                                       bn=bn, **kwargs)
+                                       bn=bn, target=target, **kwargs)
         self.bb_3_1 = BasicBlockGumbel(conv_func, hw_model, is_searchable[16:18], 64, 64, stride=1,
-                                       bn=bn, **kwargs)
+                                       bn=bn, target=target, **kwargs)
         self.bb_3_2 = BasicBlockGumbel(conv_func, hw_model, is_searchable[18:20], 64, 64, stride=1,
-                                       bn=bn, **kwargs)
+                                       bn=bn, target=target, **kwargs)
         if not self.fp:
             # If not fp we use quantized pooling
             self.pool = qm2.QuantAvgPool2d(kwargs['abits'], kernel_size=8)
@@ -175,17 +178,17 @@ class Backbone18(nn.Module):
 
 class BasicBlockGumbel(nn.Module):
     def __init__(self, conv_func, hw_model, is_searchable, inplanes, planes,
-                 stride=1, downsample=None, bn=True, **kwargs):
+                 stride=1, downsample=None, bn=True, target='latency', **kwargs):
         self.bn = bn
         self.use_bias = not bn
         self.fp = conv_func is qm.FpConv2d
         super().__init__()
         self.conv1 = conv3x3(conv_func, hw_model, is_searchable[0], inplanes, planes,
-                             stride=stride, bias=self.use_bias, **kwargs)
+                             stride=stride, bias=self.use_bias, target=target, **kwargs)
         if bn:
             self.bn1 = nn.BatchNorm2d(planes, affine=bn)
         self.conv2 = conv3x3(conv_func, hw_model, is_searchable[1], planes, planes,
-                             bias=self.use_bias, **kwargs)
+                             bias=self.use_bias, target=target, **kwargs)
         if bn:
             self.bn2 = nn.BatchNorm2d(planes)
         if stride != 1 or inplanes != planes:
@@ -193,7 +196,7 @@ class BasicBlockGumbel(nn.Module):
                 kwargs['wbits'] = [8]
             self.downsample = conv_func(hw_model, inplanes, planes,
                                         kernel_size=1, stride=stride, groups=1, bias=self.use_bias,
-                                        **kwargs)
+                                        target=target, **kwargs)
             if bn:
                 self.bn_ds = nn.BatchNorm2d(planes)
             if not self.fp:
@@ -247,7 +250,8 @@ class BasicBlockGumbel(nn.Module):
 
 class ResNet20(nn.Module):
     def __init__(self, conv_func, hw_model, is_searchable,
-                 search_fc=None, input_size=32, num_classes=10, bn=True, **kwargs):
+                 search_fc=None, input_size=32, num_classes=10, bn=True,
+                 target='latency', **kwargs):
         if 'abits' in kwargs:
             print('abits: {}'.format(kwargs['abits']))
         if 'wbits' in kwargs:
@@ -265,15 +269,17 @@ class ResNet20(nn.Module):
         self.use_bias = not bn
         super().__init__()
         self.gumbel = kwargs.get('gumbel', False)
+        self.target = target
 
         # Model
         self.conv1 = conv3x3(conv_func, hw_model, is_searchable[0], 3, 16,
                              stride=1, groups=1,
-                             bias=self.use_bias, max_inp_val=1.0, **kwargs)
+                             bias=self.use_bias, max_inp_val=1.0,
+                             target=target, **kwargs)
         if bn:
             self.bn1 = nn.BatchNorm2d(16)
         self.backbone = Backbone20(conv_func, hw_model, is_searchable[1:-1], input_size,
-                                   bn, **kwargs)
+                                   bn, target=target, **kwargs)
 
         # Initialize weights
         for m in self.modules():
@@ -289,7 +295,7 @@ class ResNet20(nn.Module):
 
         # Final classifier
         self.fc = fc(conv_func, hw_model, is_searchable[-1], 64, num_classes,
-                     search_fc=self.search_fc, **kwargs)
+                     search_fc=self.search_fc, target=target, **kwargs)
 
     def forward(self, x, temp, is_hard):
         x = self.conv1(x, temp, is_hard)
@@ -633,12 +639,12 @@ def mixres20_diana_full(arch_cfg_path, **kwargs):
     return _mixres20_diana(arch_cfg_path, search_model)
 
 
-def mixres20_pow2_diana_full(arch_cfg_path, **kwargs):
+def mixres20_pow2_diana_full(arch_cfg_path, target='latency', **kwargs):
     # NB: 2 bits is equivalent for ternary weights!!
     search_model = ResNet20(
         qm2.MultiPrecActivConv2d, hw.diana(), [True]*22,
         search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
-        share_weight=True, **kwargs)
+        share_weight=True, target=target, **kwargs)
     return _mixres20_diana(arch_cfg_path, search_model)
 
 
