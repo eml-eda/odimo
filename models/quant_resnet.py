@@ -240,7 +240,8 @@ class BasicBlock(nn.Module):
 class ResNet18(nn.Module):
 
     def __init__(self, conv_func, hw_model, archws, archas, qtz_fc=None,
-                 input_size=64, num_classes=200, bn=True, std_head=True, **kwargs):
+                 input_size=64, num_classes=200, bn=True, std_head=True,
+                 target='latency', **kwargs):
         print('archas: {}'.format(archas))
         print('archws: {}'.format(archws))
 
@@ -254,6 +255,14 @@ class ResNet18(nn.Module):
             self.qtz_fc = False
         self.bn = bn
         self.use_bias = not bn
+        self.target = target
+        if target == 'latency':
+            self.fetch_arch_info = self._fetch_arch_latency
+        elif target == 'power':
+            self.power = hw.DianaPower()
+            self.fetch_arch_info = self._fetch_arch_power
+        else:
+            raise ValueError('Use "latency" or "power" as target.')
         super().__init__()
 
         # Model
@@ -313,7 +322,7 @@ class ResNet18(nn.Module):
                 if isinstance(module, self.conv_func):
                     module.store_hardened_weights()
 
-    def fetch_arch_info(self):
+    def _fetch_arch_latency(self):
         sum_cycles, sum_bita, sum_bitw = 0, 0, 0
         layer_idx = 0
         for m in self.modules():
@@ -357,11 +366,59 @@ class ResNet18(nn.Module):
                 layer_idx += 1
         return sum_cycles, sum_bita, sum_bitw
 
+    def _fetch_arch_power(self):
+        sum_power, sum_bita, sum_bitw = 0, 0, 0
+        layer_idx = 0
+        for m in self.modules():
+            if isinstance(m, self.conv_func):
+                size_product = m.size_product.item()
+                memory_size = m.memory_size.item()
+                wbit = m.wbits[0]
+                abit = m.abits[0]
+                sum_bitw += size_product * wbit
+
+                cycles_analog, cycles_digital = 0, 0
+                for idx, wb in enumerate(m.wbits):
+                    if len(m.wbits) > 1:
+                        ch_out = m.mix_weight.alpha_weight[idx].sum()
+                    else:
+                        ch_out = torch.tensor(m.ch_out)
+                    # Define dict whit shape infos used to model accelerators perf
+                    conv_shape = {
+                        'ch_in': m.ch_in,
+                        'ch_out': ch_out,
+                        'groups': m.mix_weight.conv.groups,
+                        'k_x': m.k_x,
+                        'k_y': m.k_y,
+                        'out_x': m.out_x,
+                        'out_y': m.out_y,
+                        }
+                    if wb == 2:
+                        cycles_analog = self.hw_model('analog', **conv_shape)
+                    else:
+                        cycles_digital = self.hw_model('digital', **conv_shape)
+                if m.mix_weight.conv.groups == 1:
+                    min_cycles = min(cycles_analog, cycles_digital)
+                    power = (self.power.p_hyb * min_cycles) + \
+                            (self.power.p_ana * (cycles_analog - min_cycles)) + \
+                            (self.power.p_dig * (cycles_digital - min_cycles))
+                else:
+                    power = self.power.p_dig * cycles_digital
+
+                bita = memory_size * abit
+                bitw = m.param_size * wbit
+                sum_power += power
+                sum_bita += bita
+                sum_bitw += bitw
+                layer_idx += 1
+        return sum_power, sum_bita, sum_bitw
+
 
 class ResNet20(nn.Module):
 
     def __init__(self, conv_func, hw_model, archws, archas, qtz_fc=None,
-                 input_size=32, num_classes=10, bn=True, **kwargs):
+                 input_size=32, num_classes=10, bn=True,
+                 target='latency', **kwargs):
         print('archas: {}'.format(archas))
         print('archws: {}'.format(archws))
 
@@ -375,6 +432,14 @@ class ResNet20(nn.Module):
             self.qtz_fc = False
         self.bn = bn
         self.use_bias = not bn
+        self.target = target
+        if target == 'latency':
+            self.fetch_arch_info = self._fetch_arch_latency
+        elif target == 'power':
+            self.power = hw.DianaPower()
+            self.fetch_arch_info = self._fetch_arch_power
+        else:
+            raise ValueError('Use "latency" or "power" as target.')
         super().__init__()
 
         # Model
@@ -427,7 +492,7 @@ class ResNet20(nn.Module):
                 if isinstance(module, self.conv_func):
                     module.store_hardened_weights()
 
-    def fetch_arch_info(self):
+    def _fetch_arch_latency(self):
         sum_cycles, sum_bita, sum_bitw = 0, 0, 0
         layer_idx = 0
         for m in self.modules():
@@ -470,6 +535,53 @@ class ResNet20(nn.Module):
                 sum_bitw += bitw
                 layer_idx += 1
         return sum_cycles, sum_bita, sum_bitw
+
+    def _fetch_arch_power(self):
+        sum_power, sum_bita, sum_bitw = 0, 0, 0
+        layer_idx = 0
+        for m in self.modules():
+            if isinstance(m, self.conv_func):
+                size_product = m.size_product.item()
+                memory_size = m.memory_size.item()
+                wbit = m.wbits[0]
+                abit = m.abits[0]
+                sum_bitw += size_product * wbit
+
+                cycles_analog, cycles_digital = 0, 0
+                for idx, wb in enumerate(m.wbits):
+                    if len(m.wbits) > 1:
+                        ch_out = m.mix_weight.alpha_weight[idx].sum()
+                    else:
+                        ch_out = torch.tensor(m.ch_out)
+                    # Define dict whit shape infos used to model accelerators perf
+                    conv_shape = {
+                        'ch_in': m.ch_in,
+                        'ch_out': ch_out,
+                        'groups': m.mix_weight.conv.groups,
+                        'k_x': m.k_x,
+                        'k_y': m.k_y,
+                        'out_x': m.out_x,
+                        'out_y': m.out_y,
+                        }
+                    if wb == 2:
+                        cycles_analog = self.hw_model('analog', **conv_shape)
+                    else:
+                        cycles_digital = self.hw_model('digital', **conv_shape)
+                if m.mix_weight.conv.groups == 1:
+                    min_cycles = min(cycles_analog, cycles_digital)
+                    power = (self.power.p_hyb * min_cycles) + \
+                            (self.power.p_ana * (cycles_analog - min_cycles)) + \
+                            (self.power.p_dig * (cycles_digital - min_cycles))
+                else:
+                    power = self.power.p_dig * cycles_digital
+
+                bita = memory_size * abit
+                bitw = m.param_size * wbit
+                sum_power += power
+                sum_bita += bita
+                sum_bitw += bitw
+                layer_idx += 1
+        return sum_power, sum_bita, sum_bitw
 
 
 class TinyMLResNet(nn.Module):
@@ -1006,7 +1118,7 @@ def quantres20_w8a7_foldbn(arch_cfg_path, **kwargs):
     return q_model
 
 
-def quantres20_w8a7_pow2_foldbn(arch_cfg_path, **kwargs):
+def quantres20_w8a7_pow2_foldbn(arch_cfg_path, target='latency', **kwargs):
     # Check `arch_cfg_path` existence
     if not Path(arch_cfg_path).exists():
         print(f"The file {arch_cfg_path} does not exist.")
@@ -1017,7 +1129,8 @@ def quantres20_w8a7_pow2_foldbn(arch_cfg_path, **kwargs):
     fp_model = ResNet20(qm.FpConv2d, hw.diana(analog_speedup=s_up),
                         archws, archas, qtz_fc='multi', **kwargs)
     q_model = ResNet20(qm2.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
-                       archws, archas, qtz_fc='multi', bn=False, **kwargs)
+                       archws, archas, qtz_fc='multi', bn=False,
+                       target=target, **kwargs)
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     fp_model.load_state_dict(fp_state_dict)
@@ -1075,7 +1188,7 @@ def quantres18_w8a7_foldbn(arch_cfg_path, **kwargs):
     return q_model
 
 
-def quantres18_w8a7_pow2_foldbn(arch_cfg_path, **kwargs):
+def quantres18_w8a7_pow2_foldbn(arch_cfg_path, target='latency', **kwargs):
     # Check `arch_cfg_path` existence
     if not Path(arch_cfg_path).exists():
         print(f"The file {arch_cfg_path} does not exist.")
@@ -1087,7 +1200,8 @@ def quantres18_w8a7_pow2_foldbn(arch_cfg_path, **kwargs):
     fp_model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
                         archws, archas, qtz_fc='multi', std_head=std_head, **kwargs)
     q_model = ResNet18(qm2.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
-                       archws, archas, qtz_fc='multi', bn=False, std_head=std_head, **kwargs)
+                       archws, archas, qtz_fc='multi', bn=False, std_head=std_head,
+                       target=target, **kwargs)
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     fp_model.load_state_dict(fp_state_dict)
@@ -1424,7 +1538,7 @@ def quantres20_w2a7_foldbn(arch_cfg_path, **kwargs):
     return q_model
 
 
-def quantres20_w2a7_pow2_foldbn(arch_cfg_path, **kwargs):
+def quantres20_w2a7_pow2_foldbn(arch_cfg_path, target='latency', **kwargs):
     # Check `arch_cfg_path` existence
     if not Path(arch_cfg_path).exists():
         print(f"The file {arch_cfg_path} does not exist.")
@@ -1438,7 +1552,8 @@ def quantres20_w2a7_pow2_foldbn(arch_cfg_path, **kwargs):
     fp_model = ResNet20(qm.FpConv2d, hw.diana(analog_speedup=s_up),
                         archws, archas, qtz_fc='multi', **kwargs)
     q_model = ResNet20(qm2.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
-                       archws, archas, qtz_fc='multi', bn=False, **kwargs)
+                       archws, archas, qtz_fc='multi', bn=False,
+                       target=target, **kwargs)
 
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
@@ -1500,7 +1615,7 @@ def quantres18_w2a7_foldbn(arch_cfg_path, **kwargs):
     return q_model
 
 
-def quantres18_w2a7_pow2_foldbn(arch_cfg_path, **kwargs):
+def quantres18_w2a7_pow2_foldbn(arch_cfg_path, target='latency', **kwargs):
     # Check `arch_cfg_path` existence
     if not Path(arch_cfg_path).exists():
         print(f"The file {arch_cfg_path} does not exist.")
@@ -1515,7 +1630,8 @@ def quantres18_w2a7_pow2_foldbn(arch_cfg_path, **kwargs):
     fp_model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
                         archws, archas, qtz_fc='multi', std_head=std_head, **kwargs)
     q_model = ResNet18(qm2.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
-                       archws, archas, qtz_fc='multi', bn=False, std_head=std_head, **kwargs)
+                       archws, archas, qtz_fc='multi', bn=False, std_head=std_head,
+                       target=target, **kwargs)
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     fp_model.load_state_dict(fp_state_dict)
@@ -1731,7 +1847,7 @@ def quantres20_w2a7_true_foldbn(arch_cfg_path, **kwargs):
     return q_model
 
 
-def quantres20_w2a7_true_pow2_foldbn(arch_cfg_path, **kwargs):
+def quantres20_w2a7_true_pow2_foldbn(arch_cfg_path, target='latency', **kwargs):
     # Check `arch_cfg_path` existence
     if not Path(arch_cfg_path).exists():
         print(f"The file {arch_cfg_path} does not exist.")
@@ -1742,7 +1858,8 @@ def quantres20_w2a7_true_pow2_foldbn(arch_cfg_path, **kwargs):
     fp_model = ResNet20(qm.FpConv2d, hw.diana(analog_speedup=s_up),
                         archws, archas, qtz_fc='multi', **kwargs)
     q_model = ResNet20(qm2.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
-                       archws, archas, qtz_fc='multi', bn=False, **kwargs)
+                       archws, archas, qtz_fc='multi', bn=False,
+                       target=target, **kwargs)
 
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
@@ -1801,7 +1918,7 @@ def quantres18_w2a7_true_foldbn(arch_cfg_path, **kwargs):
     return q_model
 
 
-def quantres18_w2a7_true_pow2_foldbn(arch_cfg_path, **kwargs):
+def quantres18_w2a7_true_pow2_foldbn(arch_cfg_path, target='latency', **kwargs):
     # Check `arch_cfg_path` existence
     if not Path(arch_cfg_path).exists():
         print(f"The file {arch_cfg_path} does not exist.")
@@ -1813,7 +1930,8 @@ def quantres18_w2a7_true_pow2_foldbn(arch_cfg_path, **kwargs):
     fp_model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
                         archws, archas, qtz_fc='multi', std_head=std_head, **kwargs)
     q_model = ResNet18(qm2.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
-                       archws, archas, qtz_fc='multi', bn=False, std_head=std_head, **kwargs)
+                       archws, archas, qtz_fc='multi', bn=False, std_head=std_head,
+                       target=target, **kwargs)
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
     fp_model.load_state_dict(fp_state_dict)

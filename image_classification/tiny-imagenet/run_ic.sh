@@ -4,14 +4,15 @@ strength=$1
 path="."
 arch=$2
 input_res=$3
+target=$4
 
 project="hp-nas_ic"
 tags="init_same softemp"
 
-if [[ "$4" == "now" ]]; then
+if [[ "$5" == "now" ]]; then
     timestamp=$(date +"%Y-%m-%d-%T")
 else
-    timestamp=$4
+    timestamp=$5
 fi
 mkdir -p ${path}/${arch}
 mkdir -p ${path}/${arch}/model_${strength}
@@ -21,7 +22,7 @@ export WANDB_MODE=offline
 
 # pretrained_model="warmup_${input_res}.pth.tar"
 pretrained_model="warmup_64red.pth.tar"
-if [[ "$5" == "search" ]]; then
+if [[ "$6" == "search" ]]; then
     echo Search
     split=0.0
     # NB: add --warmup-8bit if needed
@@ -30,13 +31,13 @@ if [[ "$5" == "search" ]]; then
         --epochs 50 -b 100 \
         --ac ${pretrained_model} --patience 10 \
         --lr 0.001 --lra 0.001 --wd 1e-4 \
-        --ai same --cd ${strength} --rt weights \
+        --ai same --cd ${strength} --target ${target} \
         --seed 42 --gpu 0 --workers 0 \
         --no-gumbel-softmax --temperature 1 --anneal-temp \
         --visualization -pr ${project} --tags ${tags} | tee ${path}/${arch}/model_${strength}/${timestamp}/log_search_${strength}.txt
 fi
 
-if [[ "$6" == "ft" ]]; then
+if [[ "$7" == "ft" ]]; then
     echo Fine-Tune
     python3 main.py ${path}/${arch}/model_${strength}/${timestamp} -a quant${arch} \
         --input-res ${input_res} --no-std-head --val-split 0.1 \

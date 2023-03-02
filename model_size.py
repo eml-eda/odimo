@@ -6,6 +6,10 @@ import models
 parser = argparse.ArgumentParser(description='Get model size')
 parser.add_argument('arch', type=str, help='Architecture name')
 parser.add_argument('--num-classes', type=int, help='Number of output classes')
+regularizer_targets = ['latency', 'power']
+parser.add_argument('--target', '--t', type=str,
+                    choices=regularizer_targets,
+                    help=f'regularization target: {*regularizer_targets,}')
 parser.add_argument('--input-res', type=int, default=None,
                     help='Input Resolution (used only for res18)')
 parser.add_argument('--no-std-head', default=True, action='store_false', dest='std_head',
@@ -30,14 +34,14 @@ if args.pretrained_model is not None:
             model = models.__dict__[args.arch](
                 args.pretrained_model, num_classes=args.num_classes,
                 fine_tune=False, analog_speedup=args.analog_speedup,
-                std_head=args.std_head)
+                std_head=args.std_head, target=args.target)
         else:
             model = models.__dict__[args.arch](
                 args.pretrained_model, analog_speedup=args.analog_speedup,
-                num_classes=args.num_classes, fine_tune=False)
+                num_classes=args.num_classes, fine_tune=False, target=args.target)
 else:
     model = models.__dict__[args.arch](
-        '', num_classes=args.num_classes)
+        '', num_classes=args.num_classes, target=args.target)
 
 # Feed random input
 if model_name == 'mobilenetv1':
@@ -62,6 +66,6 @@ with torch.no_grad():
 
 cycles, bita, bitw = model.fetch_arch_info()
 
-print(f'cycles: {cycles}')
+print(f'{args.target}: {cycles}')
 print(f'bita: {bita}')
 print(f'bitw: {bitw}')

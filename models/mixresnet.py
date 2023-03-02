@@ -42,14 +42,16 @@ def conv3x3(conv_func, hw_model, is_searchable, in_planes, out_planes,
 
 
 def conv7x7(conv_func, hw_model, is_searchable, in_planes, out_planes, bias=False,
-            stride=1, groups=1, fix_qtz=False, **kwargs):
+            stride=1, groups=1, fix_qtz=False,
+            target='latency', **kwargs):
     "7x7 convolution with padding"
     if conv_func != nn.Conv2d:
         if not is_searchable:
             kwargs['wbits'] = [8]
         return conv_func(hw_model, in_planes, out_planes,
                          kernel_size=7, groups=groups, stride=stride,
-                         padding=3, bias=bias, fix_qtz=fix_qtz, **kwargs)
+                         padding=3, bias=bias, fix_qtz=fix_qtz,
+                         target=target, **kwargs)
     else:
         return conv_func(in_planes, out_planes,
                          kernel_size=7, groups=groups, stride=stride,
@@ -58,12 +60,13 @@ def conv7x7(conv_func, hw_model, is_searchable, in_planes, out_planes, bias=Fals
 
 # MR
 def fc(conv_func, hw_model, is_searchable, in_planes, out_planes, stride=1, groups=1,
-       search_fc=None, **kwargs):
+       search_fc=None, target='latency', **kwargs):
     "fc mapped to conv"
     if not is_searchable:
         kwargs['wbits'] = [8]
     return conv_func(hw_model, in_planes, out_planes, kernel_size=1, groups=groups, stride=stride,
-                     padding=0, bias=True, fc=search_fc, **kwargs)
+                     padding=0, bias=True, fc=search_fc,
+                     target=target, **kwargs)
 
 
 # MR
@@ -131,28 +134,29 @@ class BackboneTiny(nn.Module):
 
 # MR
 class Backbone18(nn.Module):
-    def __init__(self, conv_func, hw_model, is_searchable, input_size, bn, std_head=True, **kwargs):
+    def __init__(self, conv_func, hw_model, is_searchable, input_size, bn,
+                 std_head=True, target='latency', **kwargs):
         self.fp = conv_func is qm.FpConv2d
         super().__init__()
         self.std_head = std_head
         if std_head:
             self.max_pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.bb_1_0 = BasicBlockGumbel(conv_func, hw_model, is_searchable[:2], 64, 64, stride=1,
-                                       bn=bn, **kwargs)
+                                       bn=bn, target=target, **kwargs)
         self.bb_1_1 = BasicBlockGumbel(conv_func, hw_model, is_searchable[2:4], 64, 64, stride=1,
-                                       bn=bn, **kwargs)
+                                       bn=bn, target=target, **kwargs)
         self.bb_2_0 = BasicBlockGumbel(conv_func, hw_model, is_searchable[4:7], 64, 128, stride=2,
-                                       bn=bn, **kwargs)
+                                       bn=bn, target=target, **kwargs)
         self.bb_2_1 = BasicBlockGumbel(conv_func, hw_model, is_searchable[7:9], 128, 128, stride=1,
-                                       bn=bn, **kwargs)
+                                       bn=bn, target=target, **kwargs)
         self.bb_3_0 = BasicBlockGumbel(conv_func, hw_model, is_searchable[9:12], 128, 256, stride=2,
-                                       bn=bn, **kwargs)
+                                       bn=bn, target=target, **kwargs)
         self.bb_3_1 = BasicBlockGumbel(conv_func, hw_model, is_searchable[12:14], 256, 256,
-                                       stride=1, bn=bn, **kwargs)
+                                       stride=1, bn=bn, target=target, **kwargs)
         self.bb_4_0 = BasicBlockGumbel(conv_func, hw_model, is_searchable[12:15], 256, 512,
-                                       stride=2, bn=bn, **kwargs)
+                                       stride=2, bn=bn, target=target, **kwargs)
         self.bb_4_1 = BasicBlockGumbel(conv_func, hw_model, is_searchable[15:17], 512, 512,
-                                       stride=1, bn=bn, **kwargs)
+                                       stride=1, bn=bn, target=target, **kwargs)
         if not self.fp:
             # If not fp we use quantized pooling
             self.avg_pool = qm2.QuantAvgPool2d(kwargs['abits'], kernel_size=8)
@@ -350,7 +354,7 @@ class ResNet20(nn.Module):
 class ResNet18(nn.Module):
     def __init__(self, conv_func, hw_model, is_searchable,
                  search_fc=None, input_size=64, num_classes=200, bn=True, std_head=True,
-                 **kwargs):
+                 target='latency', **kwargs):
         if 'abits' in kwargs:
             print('abits: {}'.format(kwargs['abits']))
         if 'wbits' in kwargs:
@@ -368,18 +372,20 @@ class ResNet18(nn.Module):
         self.use_bias = not bn
         super().__init__()
         self.gumbel = kwargs.get('gumbel', False)
+        self.target = target
 
         # Model
         if std_head:
             self.conv1 = conv7x7(conv_func, hw_model, is_searchable[0], 3, 64, stride=2, groups=1,
-                                 bias=self.use_bias, **kwargs)
+                                 bias=self.use_bias, target=target, **kwargs)
         else:
             self.conv1 = conv3x3(conv_func, hw_model, is_searchable[0], 3, 64, stride=1, groups=1,
-                                 bias=self.use_bias, **kwargs)
+                                 bias=self.use_bias, target=target, **kwargs)
         if bn:
             self.bn1 = nn.BatchNorm2d(64)
         self.backbone = Backbone18(conv_func, hw_model, is_searchable[1:-1], input_size,
-                                   bn, std_head=std_head, max_inp_val=1.0, **kwargs)
+                                   bn, std_head=std_head, max_inp_val=1.0,
+                                   target=target, **kwargs)
 
         # Initialize weights
         for m in self.modules():
@@ -394,7 +400,7 @@ class ResNet18(nn.Module):
 
         # Final classifier
         self.fc = fc(conv_func, hw_model, is_searchable[-1], 512, num_classes,
-                     search_fc=self.search_fc, **kwargs)
+                     search_fc=self.search_fc, target=target, **kwargs)
 
     def forward(self, x, temp, is_hard):
         x = self.conv1(x, temp, is_hard)
@@ -688,13 +694,14 @@ def mixres18_diana_full(arch_cfg_path, **kwargs):
     return _mixres18_diana(arch_cfg_path, search_model, std_head)
 
 
-def mixres18_pow2_diana_full(arch_cfg_path, **kwargs):
+def mixres18_pow2_diana_full(arch_cfg_path, target='latency', **kwargs):
     std_head = kwargs.pop('std_head', True)
     # NB: 2 bits is equivalent for ternary weights!!
     search_model = ResNet18(
         qm2.MultiPrecActivConv2d, hw.diana(), [True]*22,
         search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
-        share_weight=True, std_head=std_head, **kwargs)
+        share_weight=True, std_head=std_head,
+        target=target, **kwargs)
     return _mixres18_diana(arch_cfg_path, search_model, std_head)
 
 
