@@ -82,8 +82,8 @@ parser.add_argument('--alpha-init', '--ai', type=str,
                     help=f'alpha initialization method: {*alpha_initializations,}')
 parser.add_argument('--complexity-decay', '--cd', default=0, type=float,
                     metavar='W', help='complexity decay (default: 0)')
-regularizer_targets = ['ops', 'weights']
-parser.add_argument('--regularization-target', '--rt', type=str,
+regularizer_targets = ['latency', 'power']
+parser.add_argument('--target', '--t', type=str,
                     choices=regularizer_targets,
                     help=f'regularization target: {*regularizer_targets,}')
 parser.add_argument('--gumbel-softmax', dest='gumbel_softmax', action='store_true', default=False,
@@ -232,9 +232,9 @@ def main_worker(gpu, ngpus_per_node, args):
     model_fn = models.__dict__[args.arch]
     model = model_fn(
         args.arch_cfg,
-        reg_target=args.regularization_target,
         alpha_init=args.alpha_init,
-        gumbel=args.gumbel_softmax
+        gumbel=args.gumbel_softmax,
+        target=args.target
         )
 
     if args.distributed:
@@ -395,10 +395,10 @@ def train(train_loader, val_loader, test_loader, model, criterion,
         else:
             outs = model.fetch_best_arch()  # Return a tuple
             best_arch, cycles, bita, bitw, mixcycles, mixbita, mixbitw = outs
-        print('best model with cycles: {:.3f}M, bita: {:.3f}K, bitw: {:.3f}M'.format(
-            cycles, bita, bitw))
-        print('expected model with cycles: {:.3f}M, bita: {:.3f}K, bitw: {:.3f}M'.format(
-            mixcycles, mixbita, mixbitw))
+        print('best model with {}: {:.3f}M, bita: {:.3f}K, bitw: {:.3f}M'.format(
+            args.target, cycles, bita, bitw))
+        print('expected model with {}: {:.3f}M, bita: {:.3f}K, bitw: {:.3f}M'.format(
+            args.target, mixcycles, mixbita, mixbitw))
         for key, value in best_arch.items():
             print('{}: {}'.format(key, value))
 

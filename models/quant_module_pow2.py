@@ -1309,7 +1309,8 @@ class MultiPrecActivConv2d(nn.Module):
             s_a[-1] = 1.
         s_w = F.softmax(self.mix_weight.alpha_weight/self.temp, dim=0)
 
-        cycles = {}
+        cycles = {2: torch.tensor(0., device=s_w.device),
+                  8: torch.tensor(0., device=s_w.device)}  # TODO: Modify, ugly
         cycle = 0
         # TODO: Check if doable w/out for and if yes if it is faster
         for i, bit in enumerate(wbits):
@@ -1526,9 +1527,14 @@ class MultiPrecActivConv2d(nn.Module):
             'out_y': self.out_y,
             }
         if not self.fc or self.fc == 'multi':
+            device = self.mix_weight.alpha_weight.device
             best_wbit = sum([wbits[_] for _ in best_weight]) / cout
-            eff_cycles = {}
-            mix_eff_cycles = {}
+            eff_cycles = {2: torch.tensor(0., device=device),
+                          8: torch.tensor(0., device=device)}  # TODO: Modify, ugly
+            # eff_cycles = {}
+            mix_eff_cycles = {2: torch.tensor(0., device=device),
+                              8: torch.tensor(0., device=device)}  # TODO: Modify, ugly
+            # mix_eff_cycles = {}
             for i, bit in enumerate(wbits):
                 eff_cycle = 0.
                 mix_eff_cycle = 0.

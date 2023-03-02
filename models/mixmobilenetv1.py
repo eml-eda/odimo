@@ -20,14 +20,16 @@ __all__ = [
 
 
 def conv3x3(conv_func, hw_model, is_searchable, in_planes, out_planes,
-            bias=False, stride=1, groups=1, fix_qtz=False, **kwargs):
+            bias=False, stride=1, groups=1, fix_qtz=False,
+            target='latency', **kwargs):
     "3x3 convolution with padding"
     if conv_func != nn.Conv2d:
         if not is_searchable:
             kwargs['wbits'] = [8]
         return conv_func(hw_model, in_planes, out_planes,
                          kernel_size=3, groups=groups, stride=stride,
-                         padding=1, bias=bias, fix_qtz=fix_qtz, **kwargs)
+                         padding=1, bias=bias, fix_qtz=fix_qtz,
+                         target=target, **kwargs)
     else:
         return conv_func(in_planes, out_planes,
                          kernel_size=3, groups=groups, stride=stride,
@@ -35,13 +37,14 @@ def conv3x3(conv_func, hw_model, is_searchable, in_planes, out_planes,
 
 
 def conv_depth(conv_func, hw_model, is_searchable, in_planes,
-               bias=False, stride=1, **kwargs):
+               bias=False, stride=1, target='latency', **kwargs):
     if conv_func != nn.Conv2d:
         if not is_searchable:
             kwargs['wbits'] = [8]
         return conv_func(hw_model, in_planes, in_planes,
                          kernel_size=3, groups=in_planes, stride=stride,
-                         padding=1, bias=bias, **kwargs)
+                         padding=1, bias=bias,
+                         target=target, **kwargs)
     else:
         return conv_func(in_planes, in_planes,
                          kernel_size=3, groups=in_planes, stride=stride,
@@ -49,13 +52,14 @@ def conv_depth(conv_func, hw_model, is_searchable, in_planes,
 
 
 def conv_point(conv_func, hw_model, is_searchable, in_planes, out_planes,
-               bias=False, stride=1, **kwargs):
+               bias=False, stride=1, target='latency', **kwargs):
     if conv_func != nn.Conv2d:
         if not is_searchable:
             kwargs['wbits'] = [8]
         return conv_func(hw_model, in_planes, out_planes,
                          kernel_size=1, groups=1, stride=stride,
-                         padding=0, bias=bias, **kwargs)
+                         padding=0, bias=bias,
+                         target=target, **kwargs)
     else:
         return conv_func(in_planes, out_planes,
                          kernel_size=1, groups=1, stride=stride,
@@ -63,13 +67,14 @@ def conv_point(conv_func, hw_model, is_searchable, in_planes, out_planes,
 
 
 def fc(conv_func, hw_model, is_searchable, in_planes, out_planes,
-       stride=1, groups=1, search_fc=None, **kwargs):
+       stride=1, groups=1, search_fc=None, target='latency', **kwargs):
     "fc mapped to conv"
     if not is_searchable:
         kwargs['wbits'] = [8]
     return conv_func(hw_model, in_planes, out_planes,
                      kernel_size=1, groups=groups, stride=stride,
-                     padding=0, bias=True, fc=search_fc, **kwargs)
+                     padding=0, bias=True, fc=search_fc,
+                     target=target, **kwargs)
 
 
 def make_divisible(x, divisible_by=8):
@@ -79,18 +84,21 @@ def make_divisible(x, divisible_by=8):
 class BasicBlockGumbel(nn.Module):
 
     def __init__(self, conv_func, hw_model, is_searchable,
-                 inp, oup, stride=1, bn=True, **kwargs):
+                 inp, oup, stride=1, bn=True,
+                 target='latency', **kwargs):
         self.bn = bn
         self.use_bias = not bn
         super().__init__()
         # For depthwise archws is always [8]
         self.depth = conv_depth(conv_func, hw_model, False, inp,
-                                bias=self.use_bias, stride=stride, **kwargs)
+                                bias=self.use_bias, stride=stride,
+                                target=target, **kwargs)
         if bn:
             self.bn_depth = nn.BatchNorm2d(inp)
         self.point = conv_point(conv_func, hw_model, is_searchable[1],
                                 inp, oup,
-                                bias=self.use_bias, stride=1, **kwargs)
+                                bias=self.use_bias, stride=1,
+                                target=target, **kwargs)
         if bn:
             self.bn_point = nn.BatchNorm2d(oup)
 
@@ -108,61 +116,62 @@ class BasicBlockGumbel(nn.Module):
 class Backbone(nn.Module):
 
     def __init__(self, conv_func, hw_model, is_searchable,
-                 input_size, bn, width_mult, **kwargs):
+                 input_size, bn, width_mult,
+                 target='latency', **kwargs):
         self.fp = conv_func is qm.FpConv2d
         super().__init__()
         self.bb_1 = BasicBlockGumbel(
             conv_func, hw_model, is_searchable[:2],
             make_divisible(32*width_mult), make_divisible(64*width_mult),
-            stride=1, bn=bn, **kwargs)
+            stride=1, bn=bn, target=target, **kwargs)
         self.bb_2 = BasicBlockGumbel(
             conv_func, hw_model, is_searchable[2:4],
             make_divisible(64*width_mult), make_divisible(128*width_mult),
-            stride=2, bn=bn, **kwargs)
+            stride=2, bn=bn, target=target, **kwargs)
         self.bb_3 = BasicBlockGumbel(
             conv_func, hw_model, is_searchable[4:6],
             make_divisible(128*width_mult), make_divisible(128*width_mult),
-            stride=1, bn=bn, **kwargs)
+            stride=1, bn=bn, target=target, **kwargs)
         self.bb_4 = BasicBlockGumbel(
             conv_func, hw_model, is_searchable[6:8],
             make_divisible(128*width_mult), make_divisible(256*width_mult),
-            stride=2, bn=bn, **kwargs)
+            stride=2, bn=bn, target=target, **kwargs)
         self.bb_5 = BasicBlockGumbel(
             conv_func, hw_model, is_searchable[8:10],
             make_divisible(256*width_mult), make_divisible(256*width_mult),
-            stride=1, bn=bn, **kwargs)
+            stride=1, bn=bn, target=target, **kwargs)
         self.bb_6 = BasicBlockGumbel(
             conv_func, hw_model, is_searchable[10:12],
             make_divisible(256*width_mult), make_divisible(512*width_mult),
-            stride=2, bn=bn, **kwargs)
+            stride=2, bn=bn, target=target, **kwargs)
         self.bb_7 = BasicBlockGumbel(
             conv_func, hw_model, is_searchable[12:14],
             make_divisible(512*width_mult), make_divisible(512*width_mult),
-            stride=1, bn=bn, **kwargs)
+            stride=1, bn=bn, target=target, **kwargs)
         self.bb_8 = BasicBlockGumbel(
             conv_func, hw_model, is_searchable[14:16],
             make_divisible(512*width_mult), make_divisible(512*width_mult),
-            stride=1, bn=bn, **kwargs)
+            stride=1, bn=bn, target=target, **kwargs)
         self.bb_9 = BasicBlockGumbel(
             conv_func, hw_model, is_searchable[16:18],
             make_divisible(512*width_mult), make_divisible(512*width_mult),
-            stride=1, bn=bn, **kwargs)
+            stride=1, bn=bn, target=target, **kwargs)
         self.bb_10 = BasicBlockGumbel(
             conv_func, hw_model, is_searchable[18:20],
             make_divisible(512*width_mult), make_divisible(512*width_mult),
-            stride=1, bn=bn, **kwargs)
+            stride=1, bn=bn, target=target, **kwargs)
         self.bb_11 = BasicBlockGumbel(
             conv_func, hw_model, is_searchable[20:22],
             make_divisible(512*width_mult), make_divisible(512*width_mult),
-            stride=1, bn=bn, **kwargs)
+            stride=1, bn=bn, target=target, **kwargs)
         self.bb_12 = BasicBlockGumbel(
             conv_func, hw_model, is_searchable[22:24],
             make_divisible(512*width_mult), make_divisible(1024*width_mult),
-            stride=2, bn=bn, **kwargs)
+            stride=2, bn=bn, target=target, **kwargs)
         self.bb_13 = BasicBlockGumbel(
             conv_func, hw_model, is_searchable[24:26],
             make_divisible(1024*width_mult), make_divisible(1024*width_mult),
-            stride=1, bn=bn, **kwargs)
+            stride=1, bn=bn, target=target, **kwargs)
         if not self.fp:
             # If not fp we use quantized pooling
             self.pool = qm2.QuantAvgPool2d(kwargs['abits'],
@@ -194,7 +203,8 @@ class MobileNetV1(nn.Module):
 
     def __init__(self, conv_func, hw_model, is_searchable,
                  search_fc=None, width_mult=.25,
-                 input_size=96, num_classes=2, bn=True, **kwargs):
+                 input_size=96, num_classes=2, bn=True,
+                 target='latency', **kwargs):
         if 'abits' in kwargs:
             print('abits: {}'.format(kwargs['abits']))
         if 'wbits' in kwargs:
@@ -211,16 +221,19 @@ class MobileNetV1(nn.Module):
         self.use_bias = not bn
         super().__init__()
         self.gumbel = kwargs.get('gumbel', False)
+        self.target = target
 
         # Model
         self.input_layer = conv3x3(conv_func, hw_model, False,
                                    3, make_divisible(32*width_mult),
                                    stride=2, groups=1,
-                                   bias=False, max_inp_val=1.0, **kwargs)
+                                   bias=False, max_inp_val=1.0,
+                                   target=target, **kwargs)
         if bn:
             self.bn = nn.BatchNorm2d(make_divisible(32*width_mult))
         self.backbone = Backbone(conv_func, hw_model, is_searchable[1:-1],
-                                 input_size, bn, width_mult, **kwargs)
+                                 input_size, bn, width_mult,
+                                 target=target, **kwargs)
 
         # Initialize bn and conv weights
         for m in self.modules():
@@ -237,7 +250,8 @@ class MobileNetV1(nn.Module):
         # Final classifier
         self.fc = fc(conv_func, hw_model, False,
                      make_divisible(1024*width_mult), num_classes,
-                     search_fc=self.search_fc, **kwargs)
+                     search_fc=self.search_fc,
+                     target=target, **kwargs)
 
     def forward(self, x, temp, is_hard):
         x = self.input_layer(x, temp, is_hard)
@@ -305,11 +319,11 @@ def mixmobilenetv1_diana_full(arch_cfg_path, **kwargs):
     return _mixmobilenetv1_diana(arch_cfg_path, search_model)
 
 
-def mixmobilenetv1_pow2_diana_full(arch_cfg_path, **kwargs):
+def mixmobilenetv1_pow2_diana_full(arch_cfg_path, target='latency', **kwargs):
     search_model = MobileNetV1(
         qm2.MultiPrecActivConv2d, hw.diana(), [True]*28,
         search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
-        share_weight=True, **kwargs)
+        share_weight=True, target=target, **kwargs)
     return _mixmobilenetv1_diana(arch_cfg_path, search_model)
 
 

@@ -136,7 +136,8 @@ class MobileNetV1(nn.Module):
 
     def __init__(self, conv_func, hw_model, archws, archas,
                  qtz_fc=None, width_mult=.25,
-                 input_size=96, num_classes=2, bn=True, **kwargs):
+                 input_size=96, num_classes=2, bn=True,
+                 target='latency', **kwargs):
         print('archas: {}'.format(archas))
         print('archws: {}'.format(archws))
 
@@ -150,6 +151,14 @@ class MobileNetV1(nn.Module):
         self.width_mult = width_mult
         self.bn = bn
         self.use_bias = not bn
+        self.target = target
+        if target == 'latency':
+            self.fetch_arch_info = self._fetch_arch_latency
+        elif target == 'power':
+            self.power = hw.DianaPower()
+            self.fetch_arch_info = self._fetch_arch_power
+        else:
+            raise ValueError('Use "latency" or "power" as target.')
         super().__init__()
 
         # Model
@@ -203,7 +212,7 @@ class MobileNetV1(nn.Module):
                 if isinstance(module, self.conv_func):
                     module.store_hardened_weights()
 
-    def fetch_arch_info(self):
+    def _fetch_arch_latency(self):
         sum_cycles, sum_bita, sum_bitw = 0, 0, 0
         layer_idx = 0
         for m in self.modules():
@@ -246,6 +255,53 @@ class MobileNetV1(nn.Module):
                 sum_bitw += bitw
                 layer_idx += 1
         return sum_cycles, sum_bita, sum_bitw
+
+    def _fetch_arch_power(self):
+        sum_power, sum_bita, sum_bitw = 0, 0, 0
+        layer_idx = 0
+        for m in self.modules():
+            if isinstance(m, self.conv_func):
+                size_product = m.size_product.item()
+                memory_size = m.memory_size.item()
+                wbit = m.wbits[0]
+                abit = m.abits[0]
+                sum_bitw += size_product * wbit
+
+                cycles_analog, cycles_digital = 0, 0
+                for idx, wb in enumerate(m.wbits):
+                    if len(m.wbits) > 1:
+                        ch_out = m.mix_weight.alpha_weight[idx].sum()
+                    else:
+                        ch_out = torch.tensor(m.ch_out)
+                    # Define dict whit shape infos used to model accelerators perf
+                    conv_shape = {
+                        'ch_in': m.ch_in,
+                        'ch_out': ch_out,
+                        'groups': m.mix_weight.conv.groups,
+                        'k_x': m.k_x,
+                        'k_y': m.k_y,
+                        'out_x': m.out_x,
+                        'out_y': m.out_y,
+                        }
+                    if wb == 2:
+                        cycles_analog = self.hw_model('analog', **conv_shape)
+                    else:
+                        cycles_digital = self.hw_model('digital', **conv_shape)
+                if m.mix_weight.conv.groups == 1:
+                    min_cycles = min(cycles_analog, cycles_digital)
+                    power = (self.power.p_hyb * min_cycles) + \
+                            (self.power.p_ana * (cycles_analog - min_cycles)) + \
+                            (self.power.p_dig * (cycles_digital - min_cycles))
+                else:
+                    power = self.power.p_dig * cycles_digital
+
+                bita = memory_size * abit
+                bitw = m.param_size * wbit
+                sum_power += power
+                sum_bita += bita
+                sum_bitw += bitw
+                layer_idx += 1
+        return sum_power, sum_bita, sum_bitw
 
 
 def quantmobilenetv1_fp(arch_cfg_path, **kwargs):
@@ -310,7 +366,7 @@ def quantmobilenetv1_w8a7_foldbn(arch_cfg_path, **kwargs):
     return q_model
 
 
-def quantmobilenetv1_w8a7_pow2_foldbn(arch_cfg_path, **kwargs):
+def quantmobilenetv1_w8a7_pow2_foldbn(arch_cfg_path, target='latency', **kwargs):
     # Check `arch_cfg_path` existence
     if not Path(arch_cfg_path).exists():
         print(f"The file {arch_cfg_path} does not exist.")
@@ -321,7 +377,8 @@ def quantmobilenetv1_w8a7_pow2_foldbn(arch_cfg_path, **kwargs):
     fp_model = MobileNetV1(qm.FpConv2d, hw.diana(analog_speedup=s_up),
                            archws, archas, qtz_fc='multi', **kwargs)
     q_model = MobileNetV1(qm2.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
-                          archws, archas, qtz_fc='multi', bn=False, **kwargs)
+                          archws, archas, qtz_fc='multi', bn=False,
+                          target=target, **kwargs)
 
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
@@ -384,7 +441,7 @@ def quantmobilenetv1_w2a7_foldbn(arch_cfg_path, **kwargs):
     return q_model
 
 
-def quantmobilenetv1_w2a7_pow2_foldbn(arch_cfg_path, **kwargs):
+def quantmobilenetv1_w2a7_pow2_foldbn(arch_cfg_path, target='latency', **kwargs):
     # Check `arch_cfg_path` existence
     if not Path(arch_cfg_path).exists():
         print(f"The file {arch_cfg_path} does not exist.")
@@ -399,7 +456,7 @@ def quantmobilenetv1_w2a7_pow2_foldbn(arch_cfg_path, **kwargs):
                            archws, archas, qtz_fc='multi', **kwargs)
     q_model = MobileNetV1(qm2.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
                           archws, archas, qtz_fc='multi', bn=False,
-                          **kwargs)
+                          target=target, **kwargs)
 
     # Load pretrained fp state_dict
     fp_state_dict = torch.load(arch_cfg_path)['state_dict']
