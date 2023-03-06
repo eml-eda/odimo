@@ -16,6 +16,9 @@ from models.model_diana import analog_cycles, digital_cycles
 from models.quant_resnet import quantres8_fp, quantres20_fp, \
     quantres18_fp, quantres18_fp_reduced
 from models.quant_mobilenetv1 import quantmobilenetv1_fp
+from models.hw_models import DianaPower
+
+power = DianaPower()
 
 _ARCH_FUNC = {
     'mobilenetv1': quantmobilenetv1_fp,
@@ -42,6 +45,7 @@ def profile_cycles(arch,
                    input_shape='default',
                    pretrained_arch=None,
                    plot_layer_cycles=False,
+                   plot_layer_power=False,
                    plot_disc_net=False,
                    plot_net_graph=False,
                    save_pkl=False):
@@ -107,6 +111,12 @@ def profile_cycles(arch,
                     arch_details[name]['digital_func'] = np.array([
                         digital_cycles(ch, ch, k_x, k_y, out_x, out_y, groups=ch)[1]
                         for ch in range(1, ch_out+1)])
+                d_f = arch_details[name]['digital_func']
+                a_f = np.flip(arch_details[name]['analog_func'])
+                min_da = np.minimum(d_f, a_f)
+                arch_details[name]['power_func'] = \
+                    power.p_hyb * min_da + power.p_ana * (d_f - min_da) + \
+                    power.p_dig * (a_f - min_da)
                 arch_details[name]['digital_latency'] = \
                     arch_details[name]['digital_func'].max()
                 idx = np.argmin(np.abs(np.flip(
@@ -146,6 +156,25 @@ def profile_cycles(arch,
         fig.set_tight_layout(True)
         fig.savefig(f'{str(arch)}_cycles.png')
         print(f'Layer-wise cycles profile saved @ {str(arch)}_cycles.png', end='\n')
+
+    if plot_layer_power:
+        df = pd.DataFrame(arch_details)
+        n_layer = len(df.columns)
+        # figsize = [1*x for x in plt.rcParams["figure.figsize"]]
+        figsize = [n_layer, 2*n_layer]
+        fig, axis = plt.subplots(n_layer, figsize=figsize)
+
+        for idx, col in enumerate(df):
+            if df[col]['groups'] == 1:
+                axis[idx].plot(df[col]['x_ch'], df[col]['power_func'],
+                               color='#1982c4', label='power')
+                axis[idx].set_title(col)
+
+        handles, labels = axis[-1].get_legend_handles_labels()
+        fig.legend(handles, labels, ncol=2)
+        fig.set_tight_layout(True)
+        fig.savefig(f'{str(arch)}_power.png')
+        print(f'Layer-wise power profile saved @ {str(arch)}_power.png', end='\n')
 
     if plot_disc_net and pretrained_arch is not None:
         layers = len(arch_details.keys())
@@ -201,6 +230,8 @@ if __name__ == '__main__':
                         help='Whether to plot net graph')
     parser.add_argument('--plot-layer-cycles', action='store_true', default=False,
                         help='Whether to plot layer cycles detail')
+    parser.add_argument('--plot-layer-power', action='store_true', default=False,
+                        help='Whether to plot layer power detail')
     parser.add_argument('--plot-disc-net', action='store_true', default=False,
                         help='Whether to plot discovered net detail')
     parser.add_argument('--save-pkl', action='store_true', default=False,
@@ -214,6 +245,7 @@ if __name__ == '__main__':
     profile_cycles(args.arch,
                    pretrained_arch=args.path,
                    plot_layer_cycles=args.plot_layer_cycles,
+                   plot_layer_power=args.plot_layer_power,
                    plot_disc_net=args.plot_disc_net,
                    plot_net_graph=args.plot_net_graph,
                    save_pkl=args.save_pkl)
