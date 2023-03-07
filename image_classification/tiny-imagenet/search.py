@@ -94,7 +94,7 @@ parser.add_argument('--alpha-init', '--ai', type=str,
                     help=f'alpha initialization method: {*alpha_initializations,}')
 parser.add_argument('--complexity-decay', '--cd', default=0, type=float,
                     metavar='W', help='complexity decay (default: 0)')
-regularizer_targets = ['latency', 'power']
+regularizer_targets = ['latency', 'power', 'power-naive']
 parser.add_argument('--target', '--t', type=str,
                     choices=regularizer_targets,
                     help=f'regularization target: {*regularizer_targets,}')

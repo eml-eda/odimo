@@ -1215,6 +1215,9 @@ class MultiPrecActivConv2d(nn.Module):
             self.power = DianaPower()
             self.complexity_loss = self._complexity_loss_power
             self.fetch_best_arch = self._fetch_best_arch_power
+        elif target == 'power-naive':
+            self.complexity_loss = self._complexity_loss_power_naive
+            self.fetch_best_arch = self._fetch_best_arch_power_naive
         else:
             raise ValueError('Use "latency" or "power" as target.')
 
@@ -1342,6 +1345,52 @@ class MultiPrecActivConv2d(nn.Module):
 
         e_tot = e_hyb + e_ana + e_dig
 
+        return e_tot
+
+    def _complexity_loss_power_naive(self):
+        # cout = self.mix_weight.cout
+        abits = self.mix_activ.bits
+        wbits = self.mix_weight.bits
+
+        # Define dict where shapes informations needed to model accelerators perf
+        conv_shape = {
+            'ch_in': self.ch_in,
+            'k_x': self.k_x,
+            'k_y': self.k_y,
+            'groups': self.groups,
+            'out_x': self.out_x,
+            'out_y': self.out_y,
+            }
+
+        if not self.input_qtz:
+            s_a = F.softmax(self.mix_activ.alpha_activ/self.temp, dim=0)
+        else:
+            raise NotImplementedError
+            s_a = torch.zeros(len(abits), dtype=torch.float).to(self.mix_activ.alpha_activ.device)
+            s_a[-1] = 1.
+        s_w = F.softmax(self.mix_weight.alpha_weight/self.temp, dim=0)
+
+        cycles = {2: torch.tensor(0., device=s_w.device),
+                  8: torch.tensor(0., device=s_w.device)}  # TODO: Modify, ugly
+        cycle = 0
+        # TODO: Check if doable w/out for and if yes if it is faster
+        for i, bit in enumerate(wbits):
+            ch_eff = sum(s_w[i])
+            conv_shape['ch_out'] = ch_eff
+            if bit == 2:  # Analog accelerator
+                # cycle = sum(s_w[i]) / self.hw_model('analog')
+                # t_ana
+                cycle = self.hw_model('analog', **conv_shape)  # * 1e-6  # [M]Cycles
+            else:  # Digital accelerator
+                # cycle = sum(s_w[i]) / self.hw_model('digital')
+                # t_dig
+                cycle = self.hw_model('digital', **conv_shape)  # * 1e-6  # [M]Cycles
+            cycles[bit] = cycle
+
+        # Build tensor of cycles
+        # NB: torch.tensor() does not preserve gradients!!!
+        t_cycles = torch.stack(list(cycles.values()))
+        e_tot = sum(t_cycles)
         return e_tot
 
     def _fetch_best_arch_latency(self, layer_idx):
@@ -1601,4 +1650,129 @@ class MultiPrecActivConv2d(nn.Module):
         mixbitw = self.param_size * mix_wbit
 
         return best_arch, power, bita, bitw, mixpower, mixbita, mixbitw
+        # return best_arch, bitops, bita, bitw, mixbitops, mixbita, mixbitw
+
+    def _fetch_best_arch_power_naive(self, layer_idx):
+        size_product = float(self.size_product.cpu().numpy())
+        memory_size = float(self.memory_size.cpu().numpy())
+
+        # Activations
+        if not self.input_qtz:
+            prob_activ = F.softmax(self.mix_activ.alpha_activ/self.temp, dim=0)
+            prob_activ = prob_activ.detach().cpu()
+            best_activ = prob_activ.argmax()
+            mix_abit = 0
+            abits = self.mix_activ.bits
+            for i in range(len(abits)):
+                mix_abit += prob_activ[i] * abits[i]
+        else:
+            raise NotImplementedError
+            prob_activ = 1
+            best_activ = -1
+            abits = self.mix_activ.bits
+            mix_abit = 8
+
+        # Weights
+        if not self.fc or self.fc == 'multi':
+            prob_weight = F.softmax(self.mix_weight.alpha_weight/self.temp, dim=0)
+            prob_weight = prob_weight.detach().cpu()
+            best_weight = prob_weight.argmax(axis=0)
+            mix_wbit = 0
+            wbits = self.mix_weight.bits
+            cout = self.mix_weight.cout
+            for i in range(len(wbits)):
+                mix_wbit += sum(prob_weight[i]) * wbits[i]
+            mix_wbit = mix_wbit / cout
+        else:
+            raise NotImplementedError
+            if self.fc == 'fixed':
+                prob_weight = 1
+                mix_wbit = 8
+            elif self.fc == 'mixed':
+                prob_weight = F.softmax(self.mix_weight.alpha_weight/self.temp, dim=0)
+                prob_weight = prob_weight.detach().cpu().numpy()
+                best_weight = prob_weight.argmax(axis=0)
+                mix_wbit = 0
+                wbits = self.mix_weight.bits
+                for i in range(len(wbits)):
+                    mix_wbit += prob_weight[i] * wbits[i]
+
+        weight_shape = list(self.mix_weight.conv.weight.shape)
+        print('idx {} with shape {}, activ alpha: {}, comp: {:.3f}M * {:.3f} * {:.3f}, '
+              'memory: {:.3f}K * {:.3f}'.format(layer_idx, weight_shape, prob_activ, size_product,
+                                                mix_abit, mix_wbit, memory_size, mix_abit))
+        print('idx {} with shape {}, weight alpha: {}, comp: {:.3f}M * {:.3f} * {:.3f}, '
+              'param: {:.3f}M * {:.3f}'.format(layer_idx, weight_shape, prob_weight, size_product,
+                                               mix_abit, mix_wbit, self.param_size, mix_wbit))
+
+        # Define dict where shapes informations needed to model accelerators perf
+        conv_shape = {
+            'ch_in': self.ch_in,
+            'k_x': self.k_x,
+            'k_y': self.k_y,
+            'groups': self.groups,
+            'out_x': self.out_x,
+            'out_y': self.out_y,
+            }
+        if not self.fc or self.fc == 'multi':
+            device = self.mix_weight.alpha_weight.device
+            best_wbit = sum([wbits[_] for _ in best_weight]) / cout
+            eff_cycles = {2: torch.tensor(0., device=device),
+                          8: torch.tensor(0., device=device)}  # TODO: Modify, ugly
+            # eff_cycles = {}
+            mix_eff_cycles = {2: torch.tensor(0., device=device),
+                              8: torch.tensor(0., device=device)}  # TODO: Modify, ugly
+            # mix_eff_cycles = {}
+            for i, bit in enumerate(wbits):
+                eff_cycle = 0.
+                mix_eff_cycle = 0.
+                ch_out = sum(best_weight == i)
+                mix_ch_out = sum(prob_weight[i])
+                conv_shape['ch_out'] = ch_out
+                if bit == 2:
+                    # if ch_out != 0:
+                    eff_cycle = self.hw_model('analog', **conv_shape)
+                    conv_shape['ch_out'] = mix_ch_out
+                    mix_eff_cycle = self.hw_model('analog', **conv_shape)
+                else:
+                    # if ch_out != 0:
+                    eff_cycle = self.hw_model('digital', **conv_shape)
+                    conv_shape['ch_out'] = mix_ch_out
+                    mix_eff_cycle = self.hw_model('digital', **conv_shape)
+                eff_cycles[bit] = eff_cycle
+                mix_eff_cycles[bit] = mix_eff_cycle
+            slowest_eff_cycle = sum(list(eff_cycles.values()))
+            slowest_mix_eff_cycle = sum(list(mix_eff_cycles.values()))
+        else:
+            if self.fc == 'fixed':
+                best_wbit = 8
+                best_weight = 8
+                # mac_cycle = self.hw_model('digital')
+            elif self.fc == 'mixed':
+                best_wbit = wbits[best_weight]
+                # mac_cycle = self.hw_model('digital')
+
+        if not self.input_qtz:
+            if best_activ.dtype is torch.int64:  # Single val
+                best_abits = [[abits[best_activ]]]
+            else:
+                best_abits = [abits[i] for i in best_activ]
+            best_wbits = [[wbits[i] for i in best_weight]]
+            best_arch = {'best_activ': best_abits, 'best_weight': best_wbits}
+            # bitops = size_product * abits[best_activ] * best_wbit
+            bita = memory_size * abits[best_activ]
+        else:
+            raise NotImplementedError
+            best_arch = {'best_activ': [8], 'best_weight': [best_weight]}
+            # bitops = size_product * 8 * best_wbit
+            bita = memory_size * 8
+
+        bitw = self.param_size * best_wbit
+        cycles = slowest_eff_cycle  # * 1e-6  # [M]
+        # mixbitops = size_product * mix_abit * mix_wbit
+        mixcycles = slowest_mix_eff_cycle  # * 1e-6  # [M]
+        mixbita = memory_size * mix_abit
+        mixbitw = self.param_size * mix_wbit
+
+        return best_arch, cycles, bita, bitw, mixcycles, mixbita, mixbitw
         # return best_arch, bitops, bita, bitw, mixbitops, mixbita, mixbitw
