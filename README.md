@@ -33,7 +33,14 @@ The current version include examples based upon the following datasets:
 
 ## How to run
 Visit the directory with the task that you want to run (e.g., `image_classification/tiny-imagenet`).
+To run both the search and fine-tune steps of ODiMO a shell script is provided (e.g., `run_ic.sh`).
 
+In the case of the Tiny ImageNet task the shell script takes 7 argument as input. The relevant one are detailed within `{__}`, the other can be leaved as fixed:
+```
+$ source run_ic.sh {regularization strenght} {architecture} 64 {regularization target} now search ft
+```
+
+where `{regularization strength}` is a float number that controls the balance between task loss and regularization loss. `{architecture}` is the architecture that we want to optimize with the tool. All the supported architectures are listed in [models directory](./models). `{regularization target}` represents the hw-related metric that we want to optimize, the supported values are `[power, latency, power-naive]`.
 
 ## License
 ODiMO is released under Apache 2.0, see the LICENSE file in the root of this repository for details.
