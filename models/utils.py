@@ -1,11 +1,17 @@
 import copy
+import math
+
+import numpy as np
 
 import torch
 import torch.fx as fx
+from torch.fx.passes.shape_prop import ShapeProp
 import torch.nn as nn
 from torch.nn.utils.fusion import fuse_conv_bn_eval
 
+from models.model_diana import analog_cycles, digital_cycles
 from . import quant_module as qm
+from . import quant_module_pow2 as qm2
 
 
 def _non_zero_frac(w, init_scale_param, cout):
@@ -56,6 +62,24 @@ def _replace_node_module(node, modules, new_module):
     setattr(modules[parent_name], name, new_module)
 
 
+def adapt_resnet18_statedict(pretrained_sd, model_sd, skip_inp=False):
+    new_dict = {key: val for key, val in model_sd.items()
+                if 'size_product' not in key and 'memory_size' not in key}
+    pretrained_sd = {key: val for key, val in pretrained_sd.items()
+                     if 'size_product' not in key and 'memory_size' not in key}
+    for (item_pretr, item_mdl) in zip(pretrained_sd.items(), new_dict.items()):
+        # print(item_prtr[0], item_prtr[1].shape)
+        # print(item_mdl[0], item_mdl[1].shape)
+        # import pdb; pdb.set_trace()
+        if skip_inp:
+            skip_inp = False
+            continue
+        if 'fc' in item_pretr[0] and 'fc' in item_mdl[0]:
+            continue
+        new_dict[item_mdl[0]] = item_pretr[1]
+    return new_dict
+
+
 def adapt_scale_params(state_dict, model):
     new_dict = copy.deepcopy(state_dict)
     for key in state_dict.keys():
@@ -64,6 +88,78 @@ def adapt_scale_params(state_dict, model):
             new_dict[key] = state_dict[key].repeat(dim)
 
     return new_dict
+
+
+def detect_ad_tradeoff(model, dummy_input):
+    gm = fx.symbolic_trace(model)
+    modules = dict(gm.named_modules())
+    ShapeProp(gm).propagate(dummy_input)
+    search_or_not = list()
+
+    # Build dict with layers' shapes and cycles
+    for node in gm.graph.nodes:
+        if node.target in modules.keys():
+            if isinstance(modules[node.target], nn.Conv2d):
+                conv = modules[node.target]
+                out_shape = node.meta['tensor_meta'].shape
+                ch_in = conv.in_channels
+                ch_out = conv.out_channels
+                k_x = conv.kernel_size[0]
+                k_y = conv.kernel_size[1]
+                out_x = out_shape[-2]
+                out_y = out_shape[-1]
+                analog_func = np.array([
+                    analog_cycles(ch_in, ch, k_x, k_y, out_x, out_y)[1]
+                    for ch in range(1, ch_out+1)])
+                digital_func = np.array([
+                    digital_cycles(ch_in, ch, k_x, k_y, out_x, out_y)[1]
+                    for ch in range(1, ch_out+1)])
+                search_or_not.append(
+                    any((np.flip(analog_func) - digital_func <= 0.))
+                )
+    return search_or_not
+
+
+def fix_ch_prec(model, prec, ch):
+    i = 0
+    with torch.no_grad():
+        for name, module in model.named_modules():
+            if isinstance(module, (qm.QuantMultiPrecConv2d,
+                                   qm2.QuantMultiPrecConv2d)):
+                if module.alpha_weight.shape[0] > 1:
+                    idx = module.bits.index(prec)
+                    if type(ch) is list:
+                        module.alpha_weight[idx, :ch[i]].fill_(1.)
+                        module.alpha_weight[idx+1, :ch[i]].fill_(0.)
+                        module.alpha_weight[idx, ch[i]:].fill_(0.)
+                        module.alpha_weight[idx+1, ch[i]:].fill_(1.)
+                    elif type(ch) is int:
+                        module.alpha_weight[idx, :ch].fill_(1.)
+                        module.alpha_weight[idx+1, :ch].fill_(0.)
+                        module.alpha_weight[idx, ch:].fill_(0.)
+                        module.alpha_weight[idx+1, ch:].fill_(1.)
+                    else:
+                        raise ValueError(f'Type {type(ch)} is not supported')
+                    i += 1
+
+
+def fix_ch_prec_naive(model, speedup):
+    i = 0
+    with torch.no_grad():
+        for name, module in model.named_modules():
+            if isinstance(module, qm.QuantMultiPrecConv2d):
+                if module.alpha_weight.shape[0] > 1:
+                    idx = module.bits.index(8)
+                    ch_out = module.conv.out_channels
+                    ch = math.floor(ch_out / speedup) - 1
+                    module.alpha_weight[idx, :ch].fill_(1.)
+                    module.alpha_weight[idx+1, :ch].fill_(0.)
+                    module.alpha_weight[idx, ch:].fill_(0.)
+                    module.alpha_weight[idx+1, ch:].fill_(1.)
+                else:
+                    continue
+                    raise ValueError(f'Type {type(ch)} is not supported')
+                i += 1
 
 
 # http://tinyurl.com/2p9a22kd <- copied from torch.fx experimental (torch v11.0)
@@ -128,7 +224,11 @@ def fpfold_to_q(state_dict):
 def init_scale_param(model):
     with torch.no_grad():
         for name, module in model.named_modules():
-            if isinstance(module, qm.QuantMultiPrecConv2d):
+            if isinstance(module,
+                          (qm.QuantMultiPrecConv2d,
+                           qm2.QuantMultiPrecConv2d,
+                           qm.SharedMultiPrecConv2d,
+                           qm2.SharedMultiPrecConv2d)):
                 w = module.conv.weight
                 for submodule in module.mix_weight:
                     nb = submodule.num_bits
@@ -140,14 +240,15 @@ def init_scale_param(model):
                         # init_scale_param = torch.zeros([cout], dtype=torch.float32)
                         init_scale_param = submodule.scale_param
                         delta = .1
-                        target = .5
+                        target = .33
                         non_zero_frac = _non_zero_frac(w, init_scale_param, cout)
                         while any(non_zero_frac < target):
                             init_scale_param[non_zero_frac < target] -= delta
                             non_zero_frac = _non_zero_frac(w, init_scale_param, cout)
                     else:
                         # Init scale param to maximize the quantization range
-                        init_scale_param = torch.log(2 * w.abs().max())
+                        # init_scale_param = torch.log(2 * w.abs().max())
+                        init_scale_param = torch.exp2(torch.floor(torch.log2(2 * w.abs().max())))
                         # init_scale_param = torch.log(w.abs().max())
                         submodule.scale_param.data = init_scale_param
 
