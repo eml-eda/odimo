@@ -20,7 +20,7 @@
 import setuptools
 
 setuptools.setup(
-    name="odimo",
+    name="odimo_diana",
     description="Mixed-Precision DNAS for heterogeneous platforms.",
     version="0.0.1",
     author="Matteo Risso",
