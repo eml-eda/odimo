@@ -94,6 +94,7 @@ def adapt_resnet18_statedict(pretrained_sd, model_sd, skip_inp=False):
             skip_inp = False
             continue
         if 'fc' in item_pretr[0] and 'fc' in item_mdl[0]:
+            new_dict[item_mdl[0]] = item_pretr[1].view(item_mdl[1].shape)
             continue
         new_dict[item_mdl[0]] = item_pretr[1]
     return new_dict

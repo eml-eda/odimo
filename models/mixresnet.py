@@ -178,7 +178,7 @@ class Backbone18(nn.Module):
                                        stride=1, bn=bn, target=target, **kwargs)
         if not self.fp:
             # If not fp we use quantized pooling
-            self.avg_pool = qm2.QuantAvgPool2d(kwargs['abits'], kernel_size=8)
+            self.avg_pool = qm2.QuantAvgPool2d(kwargs['abits'], kernel_size=7)
         else:
             self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
 
@@ -714,13 +714,14 @@ def mixres18_pow2_diana_naive10(arch_cfg_path, target='latency', **kwargs):
     return _mixres18_diana(arch_cfg_path, search_model, std_head)
 
 
-def mixres18_diana_full(arch_cfg_path, **kwargs):
+def mixres18_diana_full(arch_cfg_path, target='latency', **kwargs):
     std_head = kwargs.pop('std_head', True)
     # NB: 2 bits is equivalent for ternary weights!!
     search_model = ResNet18(
-        qm.MultiPrecActivConv2d, hw.diana(), [True]*22,
+        qm2.MultiPrecActivConv2d, hw.diana(), [True]*22,
         search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
-        share_weight=True, std_head=std_head, **kwargs)
+        share_weight=True, std_head=std_head,
+        target=target, **kwargs)
     return _mixres18_diana(arch_cfg_path, search_model, std_head)
 
 
@@ -779,11 +780,6 @@ def _mixres20_diana(arch_cfg_path, search_model):
 
 
 def _mixres18_diana(arch_cfg_path, search_model, std_head):
-    # Check `arch_cfg_path` existence
-    if not Path(arch_cfg_path).exists():
-        print(f"The file {arch_cfg_path} does not exist.")
-        raise FileNotFoundError
-
     # # NB: 2 bits is equivalent for ternary weights!!
     # search_model = ResNet20(
     #     qm.MultiPrecActivConv2d, hw.diana(),

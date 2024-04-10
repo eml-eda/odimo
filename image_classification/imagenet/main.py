@@ -74,7 +74,7 @@ def resume_ckp(ckp, model, test_dl, rank):
 
 def main(rank, world_size, port, args):
     # Extract arguments
-    DATA_DIR = args.data_dir
+    DATA_DIR = args.data
     CHECKPOINT_DIR = args.checkpoint_dir
     N_EPOCHS = args.epochs
     VAL_SPLIT = args.val_split
@@ -99,7 +99,7 @@ def main(rank, world_size, port, args):
     train_dl, val_dl, test_dl = dataloaders
 
     # create model
-    print("=> creating model '{}'".format(args.arch))
+    logging.info("=> creating model '{}'".format(args.arch))
     model_fn = models.__dict__[args.arch]
     model = model_fn(
         None, num_classes=1000,
@@ -114,7 +114,7 @@ def main(rank, world_size, port, args):
     else:
         opt_sd = None
         q_opt_sd = None
-        last_epoch = -1
+        last_epoch = 0
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
@@ -130,9 +130,10 @@ def main(rank, world_size, port, args):
     optimizer = torch.optim.SGD(params, args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
+    # TODO: try with `step_size=30`
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
-                                                step_size=7,
-                                                gamma=0.1)
+                                                step_size=30,
+                                                gamma=0.25)
     if opt_sd is not None:
         optimizer.load_state_dict(opt_sd)
 
@@ -177,14 +178,17 @@ def main(rank, world_size, port, args):
                 best_acc1 = acc1
                 best_acc1_test = acc1_test
                 epoch_wout_improve = 0
-                print(f'New best Acc_val: {best_acc1}')
-                print(f'New best Acc_test: {best_acc1_test}')
+                logging.info(f'New best Acc_val: {best_acc1}')
+                logging.info(f'New best Acc_test: {best_acc1_test}')
             else:
                 epoch_wout_improve += 1
-                print(f'Epoch without improvement: {epoch_wout_improve}')
+                logging.info(f'Epoch without improvement: {epoch_wout_improve}')
 
         if rank == 0:
-            checkpoint(epoch, acc1)
+            if val_dl is not None:
+                checkpoint(epoch, acc1)
+            else:
+                checkpoint(epoch, acc1_test)
 
         # Early-Stop
         if epoch_wout_improve >= args.patience and rank == 0:
@@ -195,10 +199,10 @@ def main(rank, world_size, port, args):
             break
 
     best_acc1_val = best_acc1
-    print('Best Acc_val@1 {0} @ epoch {1}'.format(best_acc1_val, best_epoch))
+    logging.info('Best Acc_val@1 {0} @ epoch {1}'.format(best_acc1_val, best_epoch))
 
     test_acc1 = best_acc1_test
-    print('Test Acc_val@1 {0} @ epoch {1}'.format(test_acc1, best_epoch))
+    logging.info('Test Acc_val@1 {0} @ epoch {1}'.format(test_acc1, best_epoch))
 
     destroy_process_group()
 
@@ -267,6 +271,7 @@ def validate(val_loader, model, criterion, epoch, device, args):
 
     # switch to evaluate mode
     model.eval()
+    val_loader.sampler.set_epoch(epoch)
 
     with torch.no_grad():
         end = time.time()
@@ -293,7 +298,7 @@ def validate(val_loader, model, criterion, epoch, device, args):
                 progress.display(i)
 
         # TODO: this should also be done with the ProgressMeter
-        print(f' * Acc@1 {top1.avg:.6f} Acc@5 {top5.avg:.6f}')
+        logging.info(f' * Acc@1 {top1.avg:.6f} Acc@5 {top5.avg:.6f}')
 
     return top1.avg
 
@@ -339,7 +344,7 @@ class ProgressMeter(object):
     def display(self, batch):
         entries = [self.prefix + self.batch_fmtstr.format(batch)]
         entries += [str(meter) for meter in self.meters]
-        print('\t'.join(entries))
+        logging.info('\t'.join(entries))
 
     def _get_batch_fmtstr(self, num_batches):
         num_digits = len(str(num_batches // 1))
@@ -396,7 +401,7 @@ if __name__ == '__main__':
                              'using Data Parallel or Distributed Data Parallel')
     parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                         help='number of data loading workers (default: 4)')
-    parser.add_argument('--patience', default=20, type=int, metavar='N',
+    parser.add_argument('--patience', default=40, type=int, metavar='N',
                         help='number of epochs wout improvements to wait before early stopping')
     parser.add_argument('--step-epoch', default=50, type=int, metavar='N',
                         help='number of epochs to decay learning rate')
@@ -404,7 +409,7 @@ if __name__ == '__main__':
                         help='manual epoch number (useful on restarts)')
     parser.add_argument('--val-split', default=0.1, type=float,
                         help='Percentage of training data to be used as validation set')
-    parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
+    parser.add_argument('--lr', '--learning-rate', default=1e-2, type=float,
                         metavar='LR', help='initial learning rate', dest='lr')
     parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                         help='momentum')
@@ -431,11 +436,12 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', default=None, type=int,
                         help='GPU id to use.')
     args = parser.parse_args()
-    print(args)
+    logging.info(args)
 
     # Set-up directories
     if args.checkpoint_dir is None:
         args.checkpoint_dir = pathlib.Path().cwd()
+        args.checkpoint_dir = args.checkpoint_dir / args.arch
     else:
         args.checkpoint_dir = pathlib.Path(args.checkpoint_dir)
     if args.timestamp is None:

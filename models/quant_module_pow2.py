@@ -328,6 +328,7 @@ class FQConvBiasQuantization(nn.Module):
             w_scale_approx = torch.exp2(FloorSTE.apply(torch.log2(w_scale)))
             # scale_param = n_b * (torch.exp2(w_scale) / n_w) * act_scale_approx
             # scale_param = n_b * (torch.exp2(w_scale) / n_w) * (act_scale / n_a)
+            # print(n_b, w_scale_approx, n_w, act_scale, n_a)
             scale_param = n_b * (w_scale_approx / n_w) * (act_scale / n_a)
         else:
             scale_param = n_b * (torch.exp(w_scale) / n_w) * (act_scale / n_a)
