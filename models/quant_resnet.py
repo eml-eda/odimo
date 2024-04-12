@@ -259,7 +259,7 @@ class BasicBlock(nn.Module):
 class ResNet18(nn.Module):
 
     def __init__(self, conv_func, hw_model, archws, archas, qtz_fc=None,
-                 input_size=64, num_classes=200, bn=True, std_head=True,
+                 input_size=224, num_classes=1000, bn=True, std_head=True,
                  target='latency', **kwargs):
         print('archas: {}'.format(archas))
         print('archws: {}'.format(archws))
@@ -712,7 +712,7 @@ def _load_arch(arch_path, names_nbits):
 # MR
 def _load_arch_multi_prec(arch_path):
     checkpoint = torch.load(arch_path)
-    state_dict = checkpoint['state_dict']
+    state_dict = checkpoint['model_state_dict']
     best_arch, worst_arch = {}, {}
     best_arch['alpha_activ'], worst_arch['alpha_activ'] = [], []
     best_arch['alpha_weight'], worst_arch['alpha_weight'] = [], []
@@ -2753,7 +2753,7 @@ def _quantres20_diana(arch_cfg_path, model, **kwargs):
 def _quantres18_diana(arch_cfg_path, model, **kwargs):
     if kwargs.get('fine_tune', True):
         # Load all weights
-        state_dict = torch.load(arch_cfg_path)['state_dict']
+        state_dict = torch.load(arch_cfg_path)['model_state_dict']
         model.load_state_dict(state_dict)
     else:
         # Load only alphas weights

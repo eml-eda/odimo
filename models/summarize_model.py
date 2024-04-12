@@ -28,7 +28,7 @@ from torch.fx.passes.shape_prop import ShapeProp
 
 import models.quant_module as qm
 # from models.model_diana import analog_cycles, digital_cycles
-from models.quant_resnet import quantres18_diana_full, quantres20_diana_full
+from models.quant_resnet import quantres18_diana_full, quantres20_diana_full, quantres18_w8a7_foldbn
 from models.quant_mobilenetv1 import quantmobilenetv1_diana_full
 
 from deployment.quantization import QuantizationTracer
@@ -36,12 +36,14 @@ from deployment.quantization import QuantizationTracer
 _ARCH_FUNC = {
     'mobilenetv1': quantmobilenetv1_diana_full,
     'resnet18': quantres18_diana_full,
+    'resnet18_w8a7': quantres18_w8a7_foldbn,
     'resnet20': quantres20_diana_full,
 }
 
 _INP_SHAPE = {
     'mobilenetv1': (1, 3, 96, 96),
     'resnet18': (1, 3, 64, 64),
+    'resnet18_w8a7': (1, 3, 224, 224),
     'resnet20': (1, 3, 32, 32),
 }
 
@@ -53,7 +55,7 @@ def main(arch,
          output_name='output.json'):
 
     if arch == 'resnet18':
-        model = _ARCH_FUNC[arch](pretrained, std_head=False)
+        model = _ARCH_FUNC[arch](pretrained, std_head=True)
     else:
         model = _ARCH_FUNC[arch](pretrained)
     if input_shape == 'default':
@@ -67,7 +69,7 @@ def main(arch,
         path = Path(disc_net)
         if not path.exists():
             raise ValueError(f'{path} does not exists!')
-        state_dict = torch.load(path)['state_dict']
+        state_dict = torch.load(path)['model_state_dict']
         model.load_state_dict(state_dict)
 
     # gm = fx.symbolic_trace(model)

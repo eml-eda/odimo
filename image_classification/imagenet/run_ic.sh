@@ -20,8 +20,8 @@ if [[ "$5" == "search" ]]; then
     # NB: add --warmup-8bit if needed
     python3 search.py ${data} -a mix${arch} \
         --val-split 0.1 \
-        --epochs 300 -b 128 \
-        --patience 40 \
+        --epochs 130 -b 128 \
+        --patience 25 \
         --lr 0.001 --lra 0.001 --wd 1e-4 \
         --ai same --cd ${strength} --target ${target} \
         --seed 42 --workers 4 --world-size 2 \
@@ -31,10 +31,10 @@ fi
 if [[ "$6" == "ft" ]]; then
     echo Fine-Tune
     python3 main.py ${data} -a quant${arch} \
-        --epochs 300 -b 128 --patience 40 \
+        --epochs 130 -b 128 --patience 25 \
         --lr 0.0005 --wd 1e-4 \
         --seed 42 --workers 4 --world-size 2 \
-        --ac ${arch}/model_${strength}/${timestamp}/arch_model_best.pth.tar -ft
+        --ac ${arch}/model_${strength}/${timestamp}/best.pt -ft
 else
     echo From-Scratch
     # pretrained_model="warmup_224.pth.tar"
