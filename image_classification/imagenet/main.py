@@ -18,7 +18,6 @@
 # *----------------------------------------------------------------------------*
 
 import argparse
-from datetime import datetime
 import logging
 import pathlib
 import shutil
@@ -102,7 +101,7 @@ def main(rank, world_size, port, args):
     logging.info("=> creating model '{}'".format(args.arch))
     model_fn = models.__dict__[args.arch]
     model = model_fn(
-        None, num_classes=1000,
+        args.arch_cfg, num_classes=1000,
         input_size=224, fine_tune=args.fine_tune, std_head=True)
     model = model.to(rank)
     model = DDP(model, device_ids=[rank])
@@ -420,9 +419,11 @@ if __name__ == '__main__':
                         metavar='LR', help='initial q learning rate', dest='lrq')
     parser.add_argument('-p', '--print-freq', default=20, type=int,
                         metavar='N', help='print frequency (default: 10)')
-    parser.add_argument('--arch-cfg', '--ac', default='', type=str, metavar='PATH',
+    parser.add_argument('--arch-cfg', '--ac', default=None, type=str, metavar='PATH',
                         help='path to architecture configuration')
     # MR
+    parser.add_argument('--complexity-decay', '--cd', default=0, type=float,
+                        metavar='W', help='complexity decay (default: 0)')
     parser.add_argument('-ft', '--fine-tune', dest='fine_tune', action='store_true',
                         help='use pre-trained weights from search phase')
     parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
@@ -441,17 +442,16 @@ if __name__ == '__main__':
     # Set-up directories
     if args.checkpoint_dir is None:
         args.checkpoint_dir = pathlib.Path().cwd()
-        args.checkpoint_dir = args.checkpoint_dir / args.arch
+        args.checkpoint_dir = args.checkpoint_dir / str(args.arch)[5:]
+        args.checkpoint_dir = args.checkpoint_dir / f'model_{args.complexity_decay:.1e}'
+        args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     else:
         args.checkpoint_dir = pathlib.Path(args.checkpoint_dir)
-    if args.timestamp is None:
-        args.timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    args.checkpoint_dir = args.checkpoint_dir / args.timestamp
+    # if args.timestamp is None:
+    #     args.timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    args.checkpoint_dir = args.checkpoint_dir / args.timestamp / 'ft'
     # Maybe create directories
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
-    if args.timestamp is None:
-        args.timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
     # Set up logging in the main process
     logging.basicConfig(filename=args.checkpoint_dir / 'log.txt',

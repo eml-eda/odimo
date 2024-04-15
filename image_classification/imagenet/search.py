@@ -524,18 +524,16 @@ if __name__ == '__main__':
     # Set-up directories
     if args.checkpoint_dir is None:
         args.checkpoint_dir = pathlib.Path().cwd()
-        args.checkpoint_dir = args.checkpoint_dir / args.arch
+        args.checkpoint_dir = args.checkpoint_dir / str(args.arch)[3:]
+        args.checkpoint_dir = args.checkpoint_dir / f'model_{args.complexity_decay:.1e}'
         args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     else:
         args.checkpoint_dir = pathlib.Path(args.checkpoint_dir)
-    if args.timestamp is None:
-        args.timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    # if args.timestamp is None:
+    #     args.timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     args.checkpoint_dir = args.checkpoint_dir / args.timestamp
     # Maybe create directories
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
-    if args.timestamp is None:
-        args.timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
     # Set up logging in the main process
     logging.basicConfig(filename=args.checkpoint_dir / 'log.txt',

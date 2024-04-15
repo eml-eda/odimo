@@ -10,9 +10,9 @@ if [[ "$4" == "now" ]]; then
 else
     timestamp=$4
 fi
-mkdir -p ${arch}
-mkdir -p ${arch}/model_${strength}
-mkdir -p ${arch}/model_${strength}/${timestamp}
+# mkdir -p ${arch}
+# mkdir -p ${arch}/model_${strength}
+# mkdir -p ${arch}/model_${strength}/${timestamp}
 
 if [[ "$5" == "search" ]]; then
     echo Search
@@ -21,7 +21,7 @@ if [[ "$5" == "search" ]]; then
     python3 search.py ${data} -a mix${arch} \
         --val-split 0.1 \
         --epochs 130 -b 128 \
-        --patience 25 \
+        --patience 25 --timestamp ${timestamp} \
         --lr 0.001 --lra 0.001 --wd 1e-4 \
         --ai same --cd ${strength} --target ${target} \
         --seed 42 --workers 4 --world-size 2 \
@@ -31,8 +31,8 @@ fi
 if [[ "$6" == "ft" ]]; then
     echo Fine-Tune
     python3 main.py ${data} -a quant${arch} \
-        --epochs 130 -b 128 --patience 25 \
-        --lr 0.0005 --wd 1e-4 \
+        --epochs 130 -b 128 --patience 25 --timestamp ${timestamp} \
+        --lr 0.0005 --wd 1e-4  --cd ${strength} \
         --seed 42 --workers 4 --world-size 2 \
         --ac ${arch}/model_${strength}/${timestamp}/best.pt -ft
 else
