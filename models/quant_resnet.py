@@ -71,6 +71,8 @@ __all__ = [
     'quantres18_minlat64_naive5_foldbn', 'quantres18_minlat64_naive10_foldbn',
     'quantres18_diana_naive5', 'quantres18_diana_naive10', 'quantres18_pow2_diana_naive10',
     'quantres18_diana_reduced', 'quantres18_diana_full', 'quantres18_pow2_diana_full',
+    'quantres18_fp_c100', 'quantres18_w8a7_pow2_foldbn_c100', 'quantres18_w2a7_pow2_foldbn_c100',
+    'quantres18_w2a7_true_pow2_foldbn_c100',
 ]
 
 
@@ -807,6 +809,132 @@ def quantres20_fp(arch_cfg_path, **kwargs):
     model = ResNet20(qm.FpConv2d, hw.diana(analog_speedup=5.),
                      archws, archas, qtz_fc='multi', **kwargs)
     return model
+
+
+def quantres18_fp_c100(arch_cfg_path, **kwargs):
+    archas, archws = [[8]] * 21, [[8]] * 21
+    kwargs['std_head'] = False
+    model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                     archws, archas, qtz_fc='multi', num_classes=100,
+                     **kwargs)
+    return model
+
+
+def quantres18_w8a7_pow2_foldbn_c100(arch_cfg_path, target='latency', **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[7]] * 21, [[8]] * 21
+    s_up = kwargs.pop('analog_speedup', 5.)
+    std_head = kwargs.pop('std_head', False)
+    fp_model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                        archws, archas, num_classes=100,
+                        qtz_fc='multi', std_head=std_head, **kwargs)
+    q_model = ResNet18(qm2.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
+                       archws, archas, num_classes=100,
+                       qtz_fc='multi', bn=False, std_head=std_head,
+                       target=target, **kwargs)
+    # Load pretrained fp state_dict
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_model.load_state_dict(fp_state_dict)
+    # Fold bn
+    fp_model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(fp_model)
+    folded_state_dict = folded_model.state_dict()
+
+    # Delete fp and folded model
+    del fp_model, folded_model
+
+    # Translate folded fp state dict in a format compatible with quantized layers
+    q_state_dict = utils.fpfold_to_q(folded_state_dict)
+    # Load folded fp state dict in quantized model
+    q_model.load_state_dict(q_state_dict, strict=False)
+
+    # Init scale param
+    utils.init_scale_param(q_model)
+
+    return q_model
+
+
+def quantres18_w2a7_pow2_foldbn_c100(arch_cfg_path, target='latency', **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[7]] * 21, [[2]] * 21
+    # Set first and last layer weights precision to 8bit
+    archws[0] = [8]
+    archws[-1] = [8]
+    s_up = kwargs.pop('analog_speedup', 5.)
+    std_head = kwargs.pop('std_head', False)
+    fp_model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                        archws, archas, num_classes=100,
+                        qtz_fc='multi', std_head=std_head, **kwargs)
+    q_model = ResNet18(qm2.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
+                       archws, archas, num_classes=100,
+                       qtz_fc='multi', bn=False, std_head=std_head,
+                       target=target, **kwargs)
+    # Load pretrained fp state_dict
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_model.load_state_dict(fp_state_dict)
+    # Fold bn
+    fp_model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(fp_model)
+    folded_state_dict = folded_model.state_dict()
+
+    # Delete fp and folded model
+    del fp_model, folded_model
+
+    # Translate folded fp state dict in a format compatible with quantized layers
+    q_state_dict = utils.fpfold_to_q(folded_state_dict)
+    # Load folded fp state dict in quantized model
+    q_model.load_state_dict(q_state_dict, strict=False)
+
+    # Init scale param
+    utils.init_scale_param(q_model)
+
+    return q_model
+
+
+def quantres18_w2a7_true_pow2_foldbn_c100(arch_cfg_path, target='latency', **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[7]] * 21, [[2]] * 21
+    s_up = kwargs.pop('analog_speedup', 5.)
+    std_head = kwargs.pop('std_head', False)
+    fp_model = ResNet18(qm.FpConv2d, hw.diana(analog_speedup=5.),
+                        archws, archas, num_classes=100,
+                        qtz_fc='multi', std_head=std_head, **kwargs)
+    q_model = ResNet18(qm2.QuantMultiPrecActivConv2d, hw.diana(analog_speedup=s_up),
+                       archws, archas, num_classes=100,
+                       qtz_fc='multi', bn=False, std_head=std_head,
+                       target=target, **kwargs)
+    # Load pretrained fp state_dict
+    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_model.load_state_dict(fp_state_dict)
+    # Fold bn
+    fp_model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(fp_model)
+    folded_state_dict = folded_model.state_dict()
+
+    # Delete fp and folded model
+    del fp_model, folded_model
+
+    # Translate folded fp state dict in a format compatible with quantized layers
+    q_state_dict = utils.fpfold_to_q(folded_state_dict)
+    # Load folded fp state dict in quantized model
+    q_model.load_state_dict(q_state_dict, strict=False)
+
+    # Init scale param
+    utils.init_scale_param(q_model)
+
+    return q_model
 
 
 def quantres18_fp(arch_cfg_path, pretrained=True, **kwargs):
