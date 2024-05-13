@@ -31,9 +31,9 @@ fi
 if [[ "$6" == "ft" ]]; then
     echo Fine-Tune
     python3 main.py ${data} -a quant${arch} \
-        --epochs 130 -b 128 --patience 25 --timestamp ${timestamp} \
+        --epochs 130 -b 128 --patience 50 --timestamp ${timestamp} \
         --lr 0.0005 --wd 1e-4  --cd ${strength} \
-        --seed 42 --workers 4 --world-size 2 \
+        --seed 42 --workers 4 --world-size 2 --step-size 30 \
         --ac ${arch}/model_${strength}/${timestamp}/best.pt -ft
 else
     echo From-Scratch

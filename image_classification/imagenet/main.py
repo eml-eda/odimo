@@ -131,7 +131,7 @@ def main(rank, world_size, port, args):
                                 weight_decay=args.weight_decay)
     # TODO: try with `step_size=30`
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
-                                                step_size=30,
+                                                step_size=args.step_size,
                                                 gamma=0.25)
     if opt_sd is not None:
         optimizer.load_state_dict(opt_sd)
@@ -436,6 +436,8 @@ if __name__ == '__main__':
                         help='seed for initializing training. ')
     parser.add_argument('--gpu', default=None, type=int,
                         help='GPU id to use.')
+    parser.add_argument('--step-size', default=30, type=int,
+                        help='Step size for LR scheduler')
     args = parser.parse_args()
     logging.info(args)
 
