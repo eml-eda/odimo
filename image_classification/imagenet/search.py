@@ -18,7 +18,6 @@
 # *----------------------------------------------------------------------------*
 
 import argparse
-from datetime import datetime
 import logging
 import math
 import pathlib

@@ -48,6 +48,9 @@ if args.pretrained_model is not None:
         model = models.__dict__[args.arch](
             args.pretrained_model, num_classes=args.num_classes,
             )
+    elif 'c100' in args.arch:
+        model = models.__dict__[args.arch](
+            args.pretrained_model, target=args.target)
     else:
         if model_name == 'res18':
             model = models.__dict__[args.arch](
@@ -70,6 +73,8 @@ elif model_name in ['res20', 'res8']:
 elif model_name == 'res18':
     if args.input_res is None or args.input_res == 64:
         rnd_input = torch.randn(1, 3, 64, 64)
+    elif args.input_res == 32:
+        rnd_input = torch.randn(1, 3, 32, 32)
     else:
         rnd_input = torch.randn(1, 3, 224, 224)
 elif model_name == 'dscnn':

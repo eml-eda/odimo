@@ -33,7 +33,7 @@ from torch.fx.passes.graph_drawer import FxGraphDrawer
 
 from models.model_diana import analog_cycles, digital_cycles
 from models.quant_resnet import quantres8_fp, quantres20_fp, \
-    quantres18_fp, quantres18_fp_reduced
+    quantres18_fp, quantres18_fp_reduced, quantres18_fp_c100
 from models.quant_mobilenetv1 import quantmobilenetv1_fp
 from models.hw_models import DianaPower
 
@@ -46,6 +46,7 @@ _ARCH_FUNC = {
     'resnet18-64': quantres18_fp,
     'resnet18-64-reduced': quantres18_fp_reduced,
     'resnet18-224': quantres18_fp,
+    'resnet18-32': quantres18_fp_c100,
 }
 
 _INP_SHAPE = {
@@ -55,6 +56,7 @@ _INP_SHAPE = {
     'resnet18-64': (1, 3, 64, 64),
     'resnet18-64-reduced': (1, 3, 64, 64),
     'resnet18-224': (1, 3, 224, 224),
+    'resnet18-32': (1, 3, 32, 32),
 }
 
 _BAR_WIDTH = 0.1

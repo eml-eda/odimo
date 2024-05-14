@@ -29,7 +29,7 @@ from . import quant_module as qm
 from . import quant_module_pow2 as qm2
 from . import hw_models as hw
 from .quant_resnet import quantres8_fp_foldbn, quantres20_fp_foldbn, quantres20_fp, \
-    quantres18_fp_foldbn, quantres18_fp
+    quantres18_fp_foldbn, quantres18_fp, quantres18_fp_foldbn_c100
 
 
 # DJP
@@ -40,6 +40,7 @@ __all__ = [
     'mixres20_diana_reduced', 'mixres20_diana_full', 'mixres20_pow2_diana_full',
     'mixres18_diana_naive5', 'mixres18_diana_naive10', 'mixres18_pow2_diana_naive10',
     'mixres18_diana_reduced', 'mixres18_diana_full', 'mixres18_pow2_diana_full',
+    'mixres18_pow2_diana_full_c100',
 ]
 
 
@@ -178,7 +179,8 @@ class Backbone18(nn.Module):
                                        stride=1, bn=bn, target=target, **kwargs)
         if not self.fp:
             # If not fp we use quantized pooling
-            self.avg_pool = qm2.QuantAvgPool2d(kwargs['abits'], kernel_size=7)
+            # self.avg_pool = qm2.QuantAvgPool2d(kwargs['abits'], kernel_size=7)
+            self.avg_pool = qm2.QuantAvgPool2d(kwargs['abits'], kernel_size=4)
         else:
             self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
 
@@ -736,6 +738,17 @@ def mixres18_pow2_diana_full(arch_cfg_path, target='latency', **kwargs):
     return _mixres18_diana(arch_cfg_path, search_model, std_head)
 
 
+def mixres18_pow2_diana_full_c100(arch_cfg_path, target='latency', **kwargs):
+    std_head = kwargs.pop('std_head', False)
+    # NB: 2 bits is equivalent for ternary weights!!
+    search_model = ResNet18(
+        qm2.MultiPrecActivConv2d, hw.diana(), [True]*22,
+        search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
+        share_weight=True, std_head=std_head, num_classes=100,
+        target=target, **kwargs)
+    return _mixres18_diana_c100(arch_cfg_path, search_model, std_head)
+
+
 def mixres18_diana_reduced(arch_cfg_path, **kwargs):
     res = kwargs['input_size']
     std_head = kwargs.pop('std_head', True)
@@ -788,6 +801,30 @@ def _mixres18_diana(arch_cfg_path, search_model, std_head):
 
     # Get folded pretrained model
     folded_fp_model = quantres18_fp_foldbn(arch_cfg_path, std_head=std_head)
+    folded_state_dict = folded_fp_model.state_dict()
+
+    # Delete folded model
+    del folded_fp_model
+
+    # Translate folded state dict in a format compatible with searchable layers
+    search_state_dict = utils.fpfold_to_q(folded_state_dict)
+    search_model.load_state_dict(search_state_dict, strict=False)
+
+    # Init quantization scale param
+    utils.init_scale_param(search_model)
+
+    return search_model
+
+
+def _mixres18_diana_c100(arch_cfg_path, search_model, std_head):
+    # # NB: 2 bits is equivalent for ternary weights!!
+    # search_model = ResNet20(
+    #     qm.MultiPrecActivConv2d, hw.diana(),
+    #     search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
+    #     share_weight=True, **kwargs)
+
+    # Get folded pretrained model
+    folded_fp_model = quantres18_fp_foldbn_c100(arch_cfg_path, std_head=std_head)
     folded_state_dict = folded_fp_model.state_dict()
 
     # Delete folded model

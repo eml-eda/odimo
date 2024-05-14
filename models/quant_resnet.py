@@ -72,7 +72,7 @@ __all__ = [
     'quantres18_diana_naive5', 'quantres18_diana_naive10', 'quantres18_pow2_diana_naive10',
     'quantres18_diana_reduced', 'quantres18_diana_full', 'quantres18_pow2_diana_full',
     'quantres18_fp_c100', 'quantres18_w8a7_pow2_foldbn_c100', 'quantres18_w2a7_pow2_foldbn_c100',
-    'quantres18_w2a7_true_pow2_foldbn_c100',
+    'quantres18_w2a7_true_pow2_foldbn_c100', 'quantres18_pow2_diana_full_c100',
 ]
 
 
@@ -102,7 +102,8 @@ class Backbone18(nn.Module):
                                  bn=bn, **kwargs)
         if not self.fp:
             # Use quantized pooling
-            self.avg_pool = qm2.QuantAvgPool2d(abits[0], 7)
+            # self.avg_pool = qm2.QuantAvgPool2d(abits[0], 7)
+            self.avg_pool = qm2.QuantAvgPool2d(abits[0], 4)
         else:
             self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
 
@@ -837,7 +838,7 @@ def quantres18_w8a7_pow2_foldbn_c100(arch_cfg_path, target='latency', **kwargs):
                        qtz_fc='multi', bn=False, std_head=std_head,
                        target=target, **kwargs)
     # Load pretrained fp state_dict
-    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_state_dict = torch.load(arch_cfg_path)['model_state_dict']
     fp_model.load_state_dict(fp_state_dict)
     # Fold bn
     fp_model.eval()  # Model must be in eval mode to fold bn
@@ -878,7 +879,7 @@ def quantres18_w2a7_pow2_foldbn_c100(arch_cfg_path, target='latency', **kwargs):
                        qtz_fc='multi', bn=False, std_head=std_head,
                        target=target, **kwargs)
     # Load pretrained fp state_dict
-    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_state_dict = torch.load(arch_cfg_path)['model_state_dict']
     fp_model.load_state_dict(fp_state_dict)
     # Fold bn
     fp_model.eval()  # Model must be in eval mode to fold bn
@@ -916,7 +917,7 @@ def quantres18_w2a7_true_pow2_foldbn_c100(arch_cfg_path, target='latency', **kwa
                        qtz_fc='multi', bn=False, std_head=std_head,
                        target=target, **kwargs)
     # Load pretrained fp state_dict
-    fp_state_dict = torch.load(arch_cfg_path)['state_dict']
+    fp_state_dict = torch.load(arch_cfg_path)['model_state_dict']
     fp_model.load_state_dict(fp_state_dict)
     # Fold bn
     fp_model.eval()  # Model must be in eval mode to fold bn
@@ -1042,6 +1043,26 @@ def quantres18_fp_foldbn(arch_cfg_path, std_head=True, **kwargs):
             pretrained_model.state_dict(), model.state_dict())
     model.load_state_dict(fp_state_dict, strict=False)
 
+    model.eval()  # Model must be in eval mode to fold bn
+    folded_model = utils.fold_bn(model)
+    folded_model.train()  # Put folded model in train mode
+
+    return folded_model
+
+
+def quantres18_fp_foldbn_c100(arch_cfg_path, std_head=False, **kwargs):
+    # Check `arch_cfg_path` existence
+    if not Path(arch_cfg_path).exists():
+        print(f"The file {arch_cfg_path} does not exist.")
+        raise FileNotFoundError
+
+    archas, archws = [[8]] * 21, [[8]] * 21
+    model = ResNet18(qm.FpConv2d, None,
+                     archws, archas, qtz_fc='multi', std_head=std_head,
+                     num_classes=100,
+                     **kwargs)
+    fp_state_dict = torch.load(arch_cfg_path)['model_state_dict']
+    model.load_state_dict(fp_state_dict)
     model.eval()  # Model must be in eval mode to fold bn
     folded_model = utils.fold_bn(model)
     folded_model.train()  # Put folded model in train mode
@@ -2833,6 +2854,29 @@ def quantres18_pow2_diana_full(arch_cfg_path, **kwargs):
     kwargs.pop('analog_speedup', 5.)
     model = ResNet18(qm2.QuantMultiPrecActivConv2d, hw.diana(),
                      archws, archas, qtz_fc='multi', bn=False, **kwargs)
+    utils.init_scale_param(model)
+
+    return _quantres18_diana(arch_cfg_path, model, **kwargs)
+
+
+def quantres18_pow2_diana_full_c100(arch_cfg_path, **kwargs):
+    wbits, abits = [8, 2], [7]
+
+    # ## This block of code is only necessary to comply with the underlying EdMIPS code ##
+    best_arch, worst_arch = _load_arch_multi_prec(arch_cfg_path)
+    archas = [abits for a in best_arch['alpha_activ']]
+    archws = [wbits for w_ch in best_arch['alpha_weight']]
+    # if len(archws) == 21:
+    #     # Case of fixed-precision on last fc layer
+    #     archws.append(8)
+    # assert len(archas) == 22  # 10 insead of 8 because conv1 and fc activations are also quantized
+    # assert len(archws) == 22  # 10 instead of 8 because conv1 and fc weights are also quantized
+    ##
+
+    kwargs.pop('analog_speedup', 5.)
+    model = ResNet18(qm2.QuantMultiPrecActivConv2d, hw.diana(),
+                     archws, archas, num_classes=100,
+                     qtz_fc='multi', bn=False, **kwargs)
     utils.init_scale_param(model)
 
     return _quantres18_diana(arch_cfg_path, model, **kwargs)
