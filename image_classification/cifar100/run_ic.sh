@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 WORLD_SIZE=1
-VAL_SPLIT=0.0
+VAL_SPLIT=0.1
 ARCH_CFG="./resnet18_fp.pt"
 
 strength=$1
@@ -26,7 +26,7 @@ if [[ "$5" == "search" ]]; then
         --val-split 0.1 \
         --epochs 200 -b 128 \
         --patience 100 --timestamp ${timestamp} \
-        --lr 0.1 --lra 0.001 --wd 5e-4 \
+        --lr 0.001 --lra 0.001 --wd 5e-4 \
         --ai same --cd ${strength} --target ${target} \
         --seed 42 --workers 4 --world-size ${WORLD_SIZE} \
         --no-gumbel-softmax --temperature 1 --anneal-temp \
