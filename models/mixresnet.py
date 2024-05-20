@@ -40,7 +40,7 @@ __all__ = [
     'mixres20_diana_reduced', 'mixres20_diana_full', 'mixres20_pow2_diana_full',
     'mixres18_diana_naive5', 'mixres18_diana_naive10', 'mixres18_pow2_diana_naive10',
     'mixres18_diana_reduced', 'mixres18_diana_full', 'mixres18_pow2_diana_full',
-    'mixres18_pow2_diana_full_c100',
+    'mixres18_pow2_diana_full_c100', 'mixres18_pow2_diana_full_c100_no1st',
 ]
 
 
@@ -736,6 +736,17 @@ def mixres18_pow2_diana_full(arch_cfg_path, target='latency', **kwargs):
         share_weight=True, std_head=std_head,
         target=target, **kwargs)
     return _mixres18_diana(arch_cfg_path, search_model, std_head)
+
+
+def mixres18_pow2_diana_full_c100_no1st(arch_cfg_path, target='latency', **kwargs):
+    std_head = kwargs.pop('std_head', False)
+    # NB: 2 bits is equivalent for ternary weights!!
+    search_model = ResNet18(
+        qm2.MultiPrecActivConv2d, hw.diana(), [False] + [True]*21,
+        search_fc='multi', wbits=[8, 2], abits=[7], bn=False,
+        share_weight=True, std_head=std_head, num_classes=100,
+        target=target, **kwargs)
+    return _mixres18_diana_c100(arch_cfg_path, search_model, std_head)
 
 
 def mixres18_pow2_diana_full_c100(arch_cfg_path, target='latency', **kwargs):
